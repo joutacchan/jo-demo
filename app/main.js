@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance} from './geometry.js';
+import {parsePath,prepare,offsetLine,place,distance} from './geometry.js?v=pinned-2';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935'};
 const state={doc:null,paths:[],view:[0,0,2480,3505],base:[0,0,2480,3505],latest:null,cache:new Map(),calculations:0};
