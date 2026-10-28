@@ -26,7 +26,8 @@ function calculate(){
  try{
   if(!state.doc)return;
   const width=number('width',1,10000),units=state.base[2]/width,diameter=number('diameter',.1,10),minPitch=number('pitch',10,1000);
-  const count=number('count',2,1000);$('count').disabled=$('countMode').value==='auto';
+  const auto=$('countMode').value==='auto';
+  const count=auto?13:number('count',2,1000);$('count').disabled=auto;
   if($('pathA').value===$('pathB').value)throw Error('AとBは異なるカット線を選んでください。');
   const lines=[];
   for(const name of ['A','B']){
@@ -40,6 +41,7 @@ function calculate(){
    node('path',{d:line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '),stroke:colors[name]},$('guides'));
   }
   const result=place(...lines,{mode:$('countMode').value,count,minPitch});
+  if(auto)$('count').value=result.count;
   result.rows.forEach((row,j)=>{
    const name=j?'B':'A';
    row.holes.forEach((p,i)=>node('circle',{cx:p.x,cy:p.y,r:diameter*units/2,'data-hole':`${name}_${i+1}`},$('holes')));
