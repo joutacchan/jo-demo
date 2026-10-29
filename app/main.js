@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls} from './geometry.js?v=wall-fallback-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls} from './geometry.js?v=marker-scale-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935'};
 const state={doc:null,paths:[],view:[0,0,2480,3505],base:[0,0,2480,3505],latest:null,cache:new Map(),calculations:0};
@@ -6,7 +6,7 @@ const node=(name,attrs,parent)=>{const e=document.createElementNS(NS,name);for(c
 const message=text=>$('message').textContent=text;
 for(const name of ['A','B']){
  const div=document.createElement('div');div.className='line';div.dataset.name=name;
- div.innerHTML=`<h3>線${name}</h3><label>カット線<select id="path${name}"></select></label><div class="grid"><label>始点 %<input id="start${name}" type="number" min="0" max="100" step="0.1" value="0"></label><label>終点 %<input id="end${name}" type="number" min="0" max="100" step="0.1" value="100"></label></div><label>始点を調整<input id="rangeStart${name}" type="range" min="0" max="100" step="0.1" value="0"></label><label>終点を調整<input id="rangeEnd${name}" type="range" min="0" max="100" step="0.1" value="100"></label><div class="grid"><label>穴を置く側<select id="side${name}"><option value="auto">内側（自動）</option><option value="1">右（手動）</option><option value="-1">左（手動）</option></select></label><label>オフセット mm<input id="offset${name}" type="number" min="0" max="100" step="0.1" value="3" disabled></label></div><label><input id="snap${name}" type="checkbox" checked>3mmにスナップ</label><button id="reverse${name}">始点と終点を入れ替え</button>`;
+ div.innerHTML=`<h3>線${name}</h3><label>カット線<select id="path${name}"></select></label><div class="grid"><label>始点 %<input id="start${name}" type="number" min="0" max="100" step="0.1" value="0"></label><label>終点 %<input id="end${name}" type="number" min="0" max="100" step="0.1" value="100"></label></div><label>始点を調整<input id="rangeStart${name}" type="range" min="0" max="100" step="0.1" value="0"></label><label>終点を調整<input id="rangeEnd${name}" type="range" min="0" max="100" step="0.1" value="100"></label><div class="grid"><label>穴を置く側<select id="side${name}"><option value="auto">内側（自動）</option><option value="1">右（手動）</option><option value="-1">左（手動）</option></select></label><label>オフセット mm<input id="offset${name}" type="number" min="0" max="100" step="0.1" value="3" disabled></label></div><label><input id="snap${name}" type="checkbox" checked>3mmに固定</label><button id="reverse${name}">始点と終点を入れ替え</button>`;
  for(const end of ['start','end']){
   const controls=document.createElement('div');controls.className='grid';
   controls.innerHTML=`<label>${end==='start'?'始点':'終点'}の角を揃える<select id="corner${end}${name}"><option value="">揃えない</option></select></label><label>隣の辺のオフセット方向<select id="cornerSide${end}${name}"><option value="auto">内側（自動）</option><option value="1">隣の辺の右（手動）</option><option value="-1">隣の辺の左</option></select></label>`;
@@ -19,6 +19,9 @@ for(const name of ['A','B']){
  }
  const help=document.createElement('p');help.className='hint';help.textContent='角を揃える：「隣の辺を図で選ぶ」を押して、型紙の線をタップ。選んだ辺はAが青、Bが赤、始点は実線・終点は破線で表示します。選んだ隣の辺も同じ距離でオフセットし、その交点に端の穴を合わせます。「壁から3mmに自動調整」はカーブを延ばして最初の壁を探します。壁が見つからない端は元の位置を使います。折り返す場合は停止します。自動中の始終点%は探索の基準区間で、調整後の端は図の点線で確認できます。手動選択で複数の交点がある場合は指定端に近い交点を使います。';div.append(help);
  $('lineFields').append(div);
+ const offsetHint=document.createElement('p');offsetHint.id='offsetHint'+name;offsetHint.className='hint';
+ $('snap'+name).parentElement.after(offsetHint);$('offset'+name).setAttribute('aria-describedby',offsetHint.id);
+ $('snap'+name).addEventListener('change',()=>message($('snap'+name).checked?`線${name}：穴中心までの距離を3mmに固定しました。`:`線${name}：固定を解除しました。「オフセット mm」の数値を変えると穴が移動します。`));
  for(const end of ['Start','End']){
   const id=end.toLowerCase()+name;
   $('range'+end+name).oninput=e=>{$(id).value=e.target.value;schedule();};
@@ -81,6 +84,10 @@ function resolveSide(value,index,reverse=false){
 function recalculate(){
  state.autoWalls={};state.calculations++;state.latest=null;$('save').disabled=$('share').disabled=true;$('warning').textContent='';$('stats').replaceChildren();
  for(const id of ['guides','holes','markers'])$(id).replaceChildren();
+ for(const name of ['A','B']){
+  const fixed=$('snap'+name).checked;$('offset'+name).disabled=fixed;if(fixed)$('offset'+name).value=3;
+  $('offsetHint'+name).textContent=fixed?'カット線から穴の中心まで3mmに固定。オフにすると距離を変更できます。':'固定を解除中。「オフセット mm」を変更してください。オフにするだけでは距離は変わりません。';
+ }
  renderCornerSelections();
  try{
   if(!state.doc)return;
@@ -91,8 +98,7 @@ function recalculate(){
   const lines=[],cornerErrors=[];
   for(const name of ['A','B']){
    const idx=+$('path'+name).value,path=state.paths[idx];
-   $('offset'+name).disabled=$('snap'+name).checked;
-   const offset=$('snap'+name).checked?3:number('offset'+name,0,100);if($('snap'+name).checked)$('offset'+name).value=3;
+   const offset=$('snap'+name).checked?3:number('offset'+name,0,100);
    const start=number('start'+name,0,100)/100,end=number('end'+name,0,100)/100,side=resolveSide($('side'+name).value,idx,start>end);
    const key=idx+':'+units;
    if(!state.cache.has(key)){if(state.cache.size>30)state.cache.clear();state.cache.set(key,prepare(path,units));}
@@ -129,13 +135,14 @@ function recalculate(){
   result.rows.forEach((row,j)=>{
    const name=j?'B':'A';
    row.holes.forEach((p,i)=>node('circle',{cx:p.x,cy:p.y,r:diameter*units/2,'data-hole':`${name}_${i+1}`},$('holes')));
-   const px=state.view[2]/$('canvas').getBoundingClientRect().width;
-   for(const [p,label] of [[row.holes[0],name+'始'],[row.holes.at(-1),name+'終']]){
-    node('circle',{cx:p.x,cy:p.y,r:5*px,fill:colors[name]},$('markers'));
-    node('text',{x:p.x+8*px,y:p.y-8*px,'font-size':12*px,style:`font-size:${12*px}px`},$('markers')).textContent=label;
+   for(const [p,end,label] of [[row.holes[0],'start',name+'始点'],[row.holes.at(-1),'end',name+'終点']]){
+    const marker=node('g',{'data-endpoint':end+name,'data-x':p.x,'data-y':p.y},$('markers'));
+    node('circle',{cx:0,cy:0,r:5,fill:colors[name]},marker);
+    node('text',{x:name==='A'?-8:8,y:-8,'text-anchor':name==='A'?'end':'start',style:'font-size:14px;stroke-width:3px'},marker).textContent=label;
    }
    const div=document.createElement('div');div.className='result';div.textContent=`${name}：${result.count}穴 ／ 縫い線 ${(lines[j].len/units).toFixed(3)}mm ／ 弧長ピッチ ${row.pitch.toFixed(3)}mm ／ 中心の直線距離 ${row.minChord.toFixed(3)}〜${row.maxChord.toFixed(3)}mm${Object.keys(lines[j].autoWalls||{}).map(end=>` ／ ${end==='start'?'始点':'終点'}：壁から3mm（自動）`).join('')}${(lines[j].unchangedEnds||[]).map(end=>` ／ ${end==='start'?'始点':'終点'}：壁未検出・元の位置`).join('')}`;$('stats').append(div);
   });
+  updateMarkerScale();
   $('warning').textContent=result.warning;
   if(result.valid){state.latest={result,lines,units,width,diameter};$('save').disabled=false;$('share').disabled=!navigator.canShare;}
  }catch(e){$('warning').textContent=e.message;}
@@ -180,7 +187,13 @@ export function loadSVG(text,name='SVG'){
 async function sample(){try{const r=await fetch('assets/source/名称未設定 3.svg');if(!r.ok)throw Error('サンプルを読み込めません。');loadSVG(await r.text(),'原本サンプル');$('boot').textContent='操作の準備ができました';}catch(e){message(e.message);$('boot').textContent='起動に失敗しました。SafariでWebページとして開いてください。';}}
 $('sample').onclick=sample;
 $('file').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;if(file.size>2e6)throw Error('SVGは2MB以内にしてください。');loadSVG(await file.text(),file.name);}catch(err){message(err.message);}finally{e.target.value='';}};
-function applyView(){$('canvas').setAttribute('viewBox',state.view.join(' '));}
+function updateMarkerScale(){
+ const ctm=$('canvas').getScreenCTM();if(!ctm)return;
+ const scale=Math.hypot(ctm.a,ctm.b);if(!Number.isFinite(scale)||scale<=0)return;
+ for(const marker of $('markers').children)marker.setAttribute('transform',`translate(${marker.dataset.x} ${marker.dataset.y}) scale(${1/scale})`);
+}
+function applyView(){$('canvas').setAttribute('viewBox',state.view.join(' '));updateMarkerScale();}
+new ResizeObserver(updateMarkerScale).observe($('canvas'));
 function local(x,y){return new DOMPoint(x,y).matrixTransform($('canvas').getScreenCTM().inverse());}
 function zoom(factor,x,y){
  const before=local(x,y),v=state.view,w=Math.max(state.base[2]/40,Math.min(state.base[2]*4,v[2]/factor)),ratio=w/v[2];
