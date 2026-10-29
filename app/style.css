@@ -14,3 +14,20 @@ aside{height:100%;min-height:0;overflow-y:auto;overscroll-behavior-y:contain;-we
 
 /* Anchor the application shell to the viewport, including on iOS Safari. */
 html{height:100%;overflow:hidden}body{position:fixed;inset:0;width:100%;margin:0}main{flex-shrink:1}aside{touch-action:pan-y}
+
+/* Keep hit-test coordinates stable while entering corner selection or showing feedback. */
+.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.grid>*{min-width:0}
+.pick-corner{grid-column:1/-1;width:100%}
+.toolbar label{min-width:0}.toolbar select{min-width:0;width:100%;font-size:16px}
+#undo,#redo{min-width:44px;font-size:24px;line-height:1;padding:8px}
+.preview #message{height:2.6em;min-height:2.6em;max-height:2.6em;flex:0 0 2.6em;overflow:auto}
+@media(max-width:780px){
+ .preview .toolbar{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));grid-template-rows:44px auto;gap:4px;align-items:end}
+ .preview .toolbar button{width:100%;height:44px;min-width:0}
+ .preview .toolbar label{min-width:0;grid-row:2}
+ .preview .toolbar label:has(#mode){grid-column:1/4}
+ .preview .toolbar label:has(#active){grid-column:4/6}
+ #undo{grid-row:1;grid-column:1}#redo{grid-row:1;grid-column:2}
+ #minus{grid-row:1;grid-column:3}#plus{grid-row:1;grid-column:4}#fit{grid-row:1;grid-column:5}
+}
+@media(max-width:780px){main{grid-template-rows:minmax(0,1fr) minmax(0,1fr)}}
