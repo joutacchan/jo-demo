@@ -1,7 +1,7 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls} from './geometry.js?v=marker-scale-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls} from './geometry.js?v=two-svg-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935'};
-const state={doc:null,paths:[],view:[0,0,2480,3505],base:[0,0,2480,3505],latest:null,cache:new Map(),calculations:0};
+const state={sources:[],pathSources:[],doc:null,paths:[],view:[0,0,2480,3505],base:[0,0,2480,3505],latest:null,cache:new Map(),calculations:0};
 const node=(name,attrs,parent)=>{const e=document.createElementNS(NS,name);for(const [k,v] of Object.entries(attrs))e.setAttribute(k,v);parent?.append(e);return e;};
 const message=text=>$('message').textContent=text;
 for(const name of ['A','B']){
@@ -18,7 +18,12 @@ for(const name of ['A','B']){
   for(const id of ['corner'+end+name,'cornerSide'+end+name])controls.querySelector('#'+id).onchange=schedule;
  }
  const help=document.createElement('p');help.className='hint';help.textContent='角を揃える：「隣の辺を図で選ぶ」を押して、型紙の線をタップ。選んだ辺はAが青、Bが赤、始点は実線・終点は破線で表示します。選んだ隣の辺も同じ距離でオフセットし、その交点に端の穴を合わせます。「壁から3mmに自動調整」はカーブを延ばして最初の壁を探します。壁が見つからない端は元の位置を使います。折り返す場合は停止します。自動中の始終点%は探索の基準区間で、調整後の端は図の点線で確認できます。手動選択で複数の交点がある場合は指定端に近い交点を使います。';div.append(help);
- $('lineFields').append(div);
+ const advanced=document.createElement('details');advanced.className='line-details';
+ const summary=document.createElement('summary');summary.textContent='端点・オフセット・角合わせ';advanced.append(summary);
+ for(const child of [...div.children].slice(2))advanced.append(child);
+ const pickLine=document.createElement('button');pickLine.className='pick-line';pickLine.id='pickLine'+name;pickLine.textContent='図で辺'+name+'を選ぶ';
+ pickLine.onclick=()=>{document.activeElement?.blur();$('stage').focus({preventScroll:true});$('active').value=name;$('mode').value=name;$('mode').onchange();message('型紙の辺をタップしてください。');};
+ div.append(pickLine,advanced);$('lineFields').append(div);
  const offsetHint=document.createElement('p');offsetHint.id='offsetHint'+name;offsetHint.className='hint';
  $('snap'+name).parentElement.after(offsetHint);$('offset'+name).setAttribute('aria-describedby',offsetHint.id);
  $('snap'+name).addEventListener('change',()=>message($('snap'+name).checked?`線${name}：穴中心までの距離を3mmに固定しました。`:`線${name}：固定を解除しました。「オフセット mm」の数値を変えると穴が移動します。`));
@@ -33,11 +38,11 @@ for(const name of ['A','B']){
 function syncRanges(name){$('rangeStart'+name).value=$('start'+name).value;$('rangeEnd'+name).value=$('end'+name).value;}
 function number(id,min,max){const el=$(id),n=el.valueAsNumber;if(!Number.isFinite(n)||n<min||n>max)throw Error(`${el.parentElement.textContent.trim()}：${min}〜${max}の数値を入力してください。`);return n;}
 let frame=0;function schedule(){cancelAnimationFrame(frame);frame=requestAnimationFrame(calculate);}
-for(const id of ['width','diameter','count','pitch','countMode',...['A','B'].flatMap(n=>['side','offset','snap'].map(k=>k+n))])$(id).addEventListener('input',schedule);
+for(const id of ['width','width2','diameter','count','pitch','countMode',...['A','B'].flatMap(n=>['side','offset','snap'].map(k=>k+n))])$(id).addEventListener('input',schedule);
 // History stores editor values and immutable source text, never generated hole SVG.
 const history=[],future=[];let previous=null,restoring=false,editGroup=null,groupRecorded=false;
-const fields=()=>[...document.querySelectorAll('aside input[id],aside select[id]')].filter(e=>e.type!=='file'&&e.type!=='range');
-function snapshot(){return {source:state.sourceText,name:state.sourceLabel,view:[...state.view],values:fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value])};}
+const fields=()=>[...document.querySelectorAll('aside input[id],aside select[id]')].filter(e=>e.type!=='file'&&e.type!=='range'&&e.id!=='exportSource');
+function snapshot(){return {source:state.sourceText,name:state.sourceLabel,sources:state.sources.map(s=>({text:s.text,name:s.name,width:s.width})),view:[...state.view],values:fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value])};}
 function same(a,b){return JSON.stringify(a)===JSON.stringify(b);}
 function checkpoint(){
  if(restoring||!state.doc)return;
@@ -45,7 +50,7 @@ function checkpoint(){
  if(previous&&!same(previous,current)){
   future.length=0;
   const key=editGroup?.replace(/^rangeStart/,'start').replace(/^rangeEnd/,'end');
-  const grouped=key&&previous.source===current.source&&same(previous.view,current.view)&&current.values.every(([id,v],i)=>id===key||same(previous.values[i],[id,v]));
+  const grouped=key&&same(previous.sources.map(s=>[s.text,s.name]),current.sources.map(s=>[s.text,s.name]))&&same(previous.view,current.view)&&current.values.every(([id,v],i)=>id===key||same(previous.values[i],[id,v]));
   if(!grouped||!groupRecorded){history.push(previous);if(history.length>100)history.shift();}
   if(!grouped)editGroup=null;groupRecorded=!!grouped;
  }
@@ -67,7 +72,10 @@ function restoreHistory(from,to,text){
  to.push(snapshot());if(to.length>100)to.shift();
  restoring=true;
  try{
-  if(saved.source!==state.sourceText)loadSVG(saved.source,saved.name);
+  if(!same(saved.sources.map(s=>[s.text,s.name]),state.sources.map(s=>[s.text,s.name]))){
+   for(const [id,value] of saved.values)if(id==='width'||id==='width2')$(id).value=value;
+   state.sources=saved.sources.map(s=>({...readSource(s.text,s.name),width:s.width}));rebuildScene(true);populateChoices();
+  }
   for(const [id,value] of saved.values){const e=$(id);if(e.type==='checkbox')e.checked=value;else e.value=value;}
   for(const name of ['A','B'])syncRanges(name);
   state.view=[...saved.view];applyView();recalculate();
@@ -78,7 +86,7 @@ $('undo').onclick=()=>restoreHistory(history,future,'1つ前の状態に戻し�
 $('redo').onclick=()=>restoreHistory(future,history,'1つ先の状態に進みました。');
 function resolveSide(value,index,reverse=false){
  if(value!=='auto')return +value;
- if(!state.inside)throw Error(state.insideError);
+ if(!state.inside[index])throw Error(state.sources[state.pathSources[index]].insideError);
  return state.inside[index]*(reverse?-1:1);
 }
 function recalculate(){
@@ -88,10 +96,12 @@ function recalculate(){
   const fixed=$('snap'+name).checked;$('offset'+name).disabled=fixed;if(fixed)$('offset'+name).value=3;
   $('offsetHint'+name).textContent=fixed?'カット線から穴の中心まで3mmに固定。オフにすると距離を変更できます。':'固定を解除中。「オフセット mm」を変更してください。オフにするだけでは距離は変わりません。';
  }
+ for(const name of ['A','B'])for(const end of ['start','end'])for(const o of $('corner'+end+name).options)if(o.value!==''&&o.value!=='auto')o.disabled=state.pathSources[+o.value]!==state.pathSources[+$('path'+name).value];
  renderCornerSelections();
  try{
   if(!state.doc)return;
-  const width=number('width',1,10000),units=state.base[2]/width,diameter=number('diameter',.1,10),minPitch=number('pitch',10,1000);
+  const width=number('width',1,10000);if(state.sources[1])number('width2',1,10000);rebuildScene();
+  const units=state.sources[0].box[2]/width,diameter=number('diameter',.1,10),minPitch=number('pitch',10,1000);
   const auto=$('countMode').value==='auto';
   const count=auto?13:number('count',2,1000);$('count').disabled=auto;
   if($('pathA').value===$('pathB').value)throw Error('AとBは異なるカット線を選んでください。');
@@ -107,18 +117,19 @@ function recalculate(){
    try{
    const startAuto=$('cornerstart'+name).value==='auto',endAuto=$('cornerend'+name).value==='auto';
    if(startAuto||endAuto){
-    if(state.inside&&side!==state.inside[idx]*(start>end?-1:1))throw Error('壁の自動調整は内側への配置で使ってください。');
+    if(state.inside[idx]&&side!==state.inside[idx]*(start>end?-1:1))throw Error('壁の自動調整は内側への配置で使ってください。');
     const walls=state.paths.flatMap((p,i)=>{
-     if(i===idx)return [];const key=i+':'+units;
+     if(i===idx||state.pathSources[i]!==state.pathSources[idx])return [];const key=i+':'+units;
      if(!state.cache.has(key))state.cache.set(key,prepare(p,units));return [{index:i,prepared:state.cache.get(key)}];
     });
-    line=fitWalls(state.cache.get(key),start,end,offset*units,side,walls,{startAuto,endAuto,clearance:3,maxLength:2*Math.hypot(state.base[2],state.base[3])/units});
+    line=fitWalls(state.cache.get(key),start,end,offset*units,side,walls,{startAuto,endAuto,clearance:3,maxLength:2*Math.hypot(...state.sources[state.pathSources[idx]].box.slice(2))*state.sources[state.pathSources[idx]].scale/units});
     for(const [endpoint,index] of Object.entries(line.autoWalls))state.autoWalls[endpoint+name]=index;
    }
    const corners={};
    for(const endpoint of ['start','end']){
     const chosen=$('corner'+endpoint+name).value;if(chosen===''||chosen==='auto')continue;
     const neighbor=+chosen;if(neighbor===idx)throw Error('角を揃える隣の辺は、自分以外の線を選んでください。');
+    if(state.pathSources[neighbor]!==state.pathSources[idx])throw Error('隣の辺は同じ型紙から選んでください。');
     const neighborKey=neighbor+':'+units;
     if(!state.cache.has(neighborKey))state.cache.set(neighborKey,prepare(state.paths[neighbor],units));
     corners[endpoint]=offsetLine(state.cache.get(neighborKey),0,1,offset*units,resolveSide($('cornerSide'+endpoint+name).value,neighbor));
@@ -144,7 +155,7 @@ function recalculate(){
   });
   updateMarkerScale();
   $('warning').textContent=result.warning;
-  if(result.valid){state.latest={result,lines,units,width,diameter};$('save').disabled=false;$('share').disabled=!navigator.canShare;}
+  if(result.valid){state.latest={result,lines,units,width,diameter,rowSources:['A','B'].map(n=>state.pathSources[+$('path'+n).value])};$('save').disabled=false;$('share').disabled=!navigator.canShare;}
  }catch(e){$('warning').textContent=e.message;}
 }
 function validateDocument(doc){
@@ -161,32 +172,105 @@ function validateDocument(doc){
  const box=(root.getAttribute('viewBox')||'').trim().split(/[\s,]+/).map(Number);
  if(box.length!==4||box.some(v=>!Number.isFinite(v))||box[2]<=0||box[3]<=0)throw Error('有効なviewBoxが必要です。');
  const paths=[...root.querySelectorAll('path')].flatMap(el=>parsePath(el.getAttribute('d')||''));
- if(paths.length<2||paths.length>100)throw Error('2〜100本のサブパスを含むSVGを指定してください。');
+ if(paths.length<1||paths.length>100)throw Error('1〜100本のサブパスを含むSVGを指定してください。');
  return {box,paths};
 }
-export function loadSVG(text,name='SVG'){
+function readSource(text,name){
  const doc=new DOMParser().parseFromString(text,'image/svg+xml'),{box,paths}=validateDocument(doc);
- state.sourceText=text;state.sourceLabel=name;state.doc=doc;state.paths=paths;state.inside=null;state.insideError='';try{state.inside=interiorSides(paths,box[2]/210);}catch(e){state.insideError=e.message;}state.base=box;state.cache.clear();state.view=[...box];
- const drawing=$('drawing');drawing.replaceChildren();drawing.setAttribute('style',doc.documentElement.getAttribute('style')||'');
- for(const e of doc.documentElement.children)drawing.append(document.importNode(e,true));
- for(const name of ['A','B']){
-  $('side'+name).value='auto';
-  const select=$('path'+name);select.replaceChildren();
-  paths.forEach((_,i)=>{const o=document.createElement('option');o.value=i;o.textContent=`カット線 ${i+1}`;select.append(o);});
-  select.value=Math.min(name==='A'?5:6,paths.length-(name==='A'?2:1));
-  for(const endpoint of ['start','end']){
-   const corners=$('corner'+endpoint+name);corners.replaceChildren(new Option('揃えない',''),new Option('壁から3mmに自動調整','auto'));
-   paths.forEach((_,i)=>corners.append(new Option('カット線 '+(i+1),String(i))));
-   $('cornerSide'+endpoint+name).value='auto';
-  }
-  $('start'+name).value=0;$('end'+name).value=100;syncRanges(name);
- }
- $('sourceName').textContent=`${name} · ${doc.querySelectorAll('path').length}パス / ${paths.length}サブパス`;
- applyView();calculate();message('ドラッグで移動、2本指でズーム。タップで線や端点を指定できます。');
+ let inside=null,insideError='';try{inside=interiorSides(paths,box[2]/210);}catch(e){insideError=e.message;}
+ return {doc,text,name,box,paths,inside,insideError};
 }
+function rebuildScene(force=false){
+ if(!state.sources.length)return;
+ const widths=state.sources.map((s,i)=>{const id=i?'width2':'width',value=$(id).valueAsNumber;return force&&(!Number.isFinite(value)||value<1||value>10000)?s.width||210:number(id,1,10000);}),key=JSON.stringify(widths);
+ if(!force&&state.layoutKey===key)return;state.layoutKey=key;
+ const first=state.sources[0],units=first.box[2]/widths[0],drawing=$('drawing');
+ state.doc=first.doc;state.sourceText=first.text;state.sourceLabel=first.name;
+ state.paths=[];state.pathSources=[];state.inside=[];state.cache.clear();drawing.replaceChildren();drawing.removeAttribute('style');
+ let right=first.box[0],height=0;
+ state.sources.forEach((source,i)=>{
+  source.width=widths[i];source.scale=units*widths[i]/source.box[2];
+  source.tx=right-source.box[0]*source.scale;source.ty=first.box[1]-source.box[1]*source.scale;
+  const map=p=>({x:p.x*source.scale+source.tx,y:p.y*source.scale+source.ty});
+  source.paths.forEach((p,j)=>{state.paths.push({...p,start:map(p.start),segments:p.segments.map(c=>c.map(map))});state.pathSources.push(i);state.inside.push(source.inside?.[j]||null);});
+  const group=node('g',{'data-source':i,transform:`translate(${source.tx} ${source.ty}) scale(${source.scale})`},drawing);
+  // A nested SVG preserves root presentation attributes in the preview as well as export.
+  const svg=document.importNode(source.doc.documentElement,true);svg.setAttribute('x',source.box[0]);svg.setAttribute('y',source.box[1]);svg.setAttribute('width',source.box[2]);svg.setAttribute('height',source.box[3]);group.append(svg);
+  right+=source.box[2]*source.scale+(i<state.sources.length-1?20*units:0);height=Math.max(height,source.box[3]*source.scale);
+ });
+ state.base=[first.box[0],first.box[1],right-first.box[0],height];
+ if(force){state.view=[...state.base];applyView();}
+ $('sourceName').textContent=state.sources.map((s,i)=>`型紙${i+1}：${s.name}`).join(' ／ ');
+ $('firstSourceName').textContent=state.sources[0].name;
+ $('secondSourceName').textContent=state.sources[1]?.name||'';
+ $('secondSource').hidden=!state.sources[1];$('removeSecond').disabled=!state.sources[1];
+ $('exportSource').disabled=!state.sources[1];$('exportSource').options[1].disabled=!state.sources[1];
+ if(!state.sources[1])$('exportSource').value='0';
+}
+function pathLabel(i){const source=state.pathSources[i],local=i-state.pathSources.indexOf(source);return `${state.sources.length>1?'型紙'+(source+1)+' · ':''}カット線 ${local+1}`;}
+function populateChoices(){
+ for(const name of ['A','B']){
+  const select=$('path'+name);select.replaceChildren();state.paths.forEach((_,i)=>select.append(new Option(pathLabel(i),String(i))));
+  for(const end of ['start','end']){
+   const corners=$('corner'+end+name);corners.replaceChildren(new Option('揃えない',''),new Option('壁から3mmに自動調整','auto'));
+   state.paths.forEach((_,i)=>corners.append(new Option(pathLabel(i),String(i))));
+  }
+ }
+}
+function resetLine(name,index){
+ $('path'+name).value=index;$('side'+name).value='auto';$('start'+name).value=0;$('end'+name).value=100;
+ for(const end of ['start','end']){$('corner'+end+name).value='';$('cornerSide'+end+name).value='auto';}syncRanges(name);
+}
+export function loadSVG(text,name='SVG',slot=0){
+ if(slot!==0&&slot!==1)throw Error('型紙は2枚までです。');
+ if(slot===1&&!state.sources[0])throw Error('先に型紙1を読み込んでください。');
+ const source=readSource(text,name); // Validate before replacing either document.
+ const oldValues=fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value]);
+ const oldFirstCount=state.sources[0]?.paths.length||0;
+ state.sources[slot]=source;
+ const physical=(source.doc.documentElement.getAttribute('width')||'').match(/^\s*([\d.]+)\s*(mm|cm|in)\s*$/i);
+ if(physical){const w=+physical[1]*({mm:1,cm:10,in:25.4}[physical[2].toLowerCase()]);if(w>=1&&w<=10000)$(slot?'width2':'width').value=w;}
+ // Invalid dimension edits must not prevent replacing a file with a valid one.
+ for(const id of ['width','width2'])if(!Number.isFinite($(id).valueAsNumber)||$(id).valueAsNumber<1||$(id).valueAsNumber>10000)$(id).value=210;
+ rebuildScene(true);populateChoices();
+ for(const [id,value] of oldValues)if(/^(path|side|start|end|corner|snap|offset)/.test(id)){
+  const e=$(id);if(e.type==='checkbox')e.checked=value;else e.value=value;
+ }
+ for(const lineName of ['A','B']){
+  const oldIndex=+oldValues.find(([id])=>id==='path'+lineName)[1],owner=oldIndex<oldFirstCount?0:1;
+  if(slot===0&&owner===1&&state.sources[1]){
+   // The second file stays independent when the first file is replaced.
+   $('path'+lineName).value=source.paths.length+oldIndex-oldFirstCount;
+   for(const end of ['start','end']){
+    const id='corner'+end+lineName,value=oldValues.find(([key])=>key===id)[1];
+    $(id).value=value!==''&&value!=='auto'?String(source.paths.length+Number(value)-oldFirstCount):value;
+   }
+  }else if(slot===0){
+   resetLine(lineName,Math.max(0,Math.min(lineName==='A'?5:6,source.paths.length-(lineName==='A'&&!state.sources[1]?2:1))));
+  }else if(lineName==='B')resetLine('B',state.sources[0].paths.length);
+  else if(owner===1)resetLine('A',0);
+  syncRanges(lineName);
+ }
+ calculate();message('型紙から縫い合わせる辺A・Bを選んでください。ドラッグで移動、2本指でズーム。');
+}
+export const loadSecondSVG=(text,name='SVG 2')=>loadSVG(text,name,1);
+$('removeSecond').onclick=()=>{
+ const firstCount=state.sources[0].paths.length,values=fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value]);
+ state.sources=state.sources.slice(0,1);rebuildScene(true);populateChoices();
+ for(const [id,value] of values)if(/^(path|side|start|end|corner|snap|offset)/.test(id)){
+  const e=$(id);if(e.type==='checkbox')e.checked=value;else e.value=value;
+ }
+ for(const name of ['A','B']){
+  const oldIndex=+values.find(([id])=>id==='path'+name)[1];
+  if(oldIndex>=firstCount)resetLine(name,Math.min(name==='A'?5:6,firstCount-1));
+  else for(const end of ['start','end'])if(+$('corner'+end+name).value>=firstCount)$('corner'+end+name).value='';
+  syncRanges(name);
+ }
+ calculate();message('型紙2を外しました。↶で元に戻せます。');
+};
 async function sample(){try{const r=await fetch('assets/source/名称未設定 3.svg');if(!r.ok)throw Error('サンプルを読み込めません。');loadSVG(await r.text(),'原本サンプル');$('boot').textContent='操作の準備ができました';}catch(e){message(e.message);$('boot').textContent='起動に失敗しました。SafariでWebページとして開いてください。';}}
 $('sample').onclick=sample;
-$('file').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;if(file.size>2e6)throw Error('SVGは2MB以内にしてください。');loadSVG(await file.text(),file.name);}catch(err){message(err.message);}finally{e.target.value='';}};
+for(const [id,slot] of [['file',0],['file2',1]])$(id).onchange=async e=>{try{const file=e.target.files[0];if(!file)return;if(file.size>2e6)throw Error('SVGは1枚2MB以内にしてください。');loadSVG(await file.text(),file.name,slot);}catch(err){message(err.message);}finally{e.target.value='';}};
 function updateMarkerScale(){
  const ctm=$('canvas').getScreenCTM();if(!ctm)return;
  const scale=Math.hypot(ctm.a,ctm.b);if(!Number.isFinite(scale)||scale<=0)return;
@@ -215,9 +299,9 @@ function renderCornerSelections(){
 function nearest(points,p){let best={d:Infinity,s:0};for(let i=1;i<points.length;i++){const a=points[i-1],b=points[i],dx=b.x-a.x,dy=b.y-a.y,f=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy||1))),q={x:a.x+dx*f,y:a.y+dy*f},d=distance(q,p);if(d<best.d)best={d,s:a.s+(b.s-a.s)*f};}return best;}
 function hit(x,y){
  const mode=$('mode').value;if(mode==='pan'||!state.doc)return;
- const p=local(x,y),q=local(x+28,y),limit=distance(p,q),units=state.base[2]/number('width',1,10000);
+ const p=local(x,y),q=local(x+28,y),limit=distance(p,q),units=state.sources[0].box[2]/number('width',1,10000);
  const corner=mode==='cornerstart'||mode==='cornerend';
- const candidates=mode==='A'||mode==='B'||corner?state.paths.map((_,i)=>i).filter(i=>!corner||i!==+$('path'+$('active').value).value):[+$('path'+$('active').value).value];
+ const candidates=mode==='A'||mode==='B'||corner?state.paths.map((_,i)=>i).filter(i=>!corner||(i!==+$('path'+$('active').value).value&&state.pathSources[i]===state.pathSources[+$('path'+$('active').value).value])):[+$('path'+$('active').value).value];
  let best={d:Infinity};
  for(const i of candidates){const key=i+':'+units;if(!state.cache.has(key))state.cache.set(key,prepare(state.paths[i],units));const prep=state.cache.get(key);let passed=0;for(const table of prep.tables){const match=nearest(table.points,p);if(match.d<best.d)best={d:match.d,index:i,percent:100*(passed+match.s)/prep.total};passed+=table.len;}}
  if(best.d>limit){message('線の近くをタップしてください。番号リストからも選択できます。');return;}
@@ -235,18 +319,19 @@ $('stage').onpointermove=e=>{
 };
 function endPointer(e,cancel=false){const p=pointers.get(e.pointerId);if(!p)return;if(!cancel&&!multi&&!p.moved)try{hit(e.clientX,e.clientY);}catch(err){message(err.message);}pointers.delete(e.pointerId);gesture=pinch();if(!pointers.size){multi=false;checkpoint();}}
 $('stage').onpointerup=e=>endPointer(e);$('stage').onpointercancel=e=>endPointer(e,true);$('stage').onlostpointercapture=e=>endPointer(e,true);
-export function exportSVG(){
+export function exportSVG(sourceIndex=0){
  if(!state.latest)throw Error('条件を満たす配置を作成してください。');
- const {result,units,width,diameter}=state.latest,doc=state.doc.cloneNode(true),root=doc.documentElement;
- root.setAttribute('width',width+'mm');root.setAttribute('height',(state.base[3]/units)+'mm');
+ const source=state.sources[sourceIndex];if(!source)throw Error('保存する型紙を選んでください。');
+ const {result,diameter}=state.latest,units=source.box[2]/source.width,width=source.width,doc=source.doc.cloneNode(true),root=doc.documentElement;
+ root.setAttribute('width',width+'mm');root.setAttribute('height',(source.box[3]/units)+'mm');
  const g=doc.createElementNS(NS,'g');let id='stitch_holes',suffix=1;while(root.querySelector(`[id="${id}"]`))id='stitch_holes_'+suffix++;g.setAttribute('id',id);g.setAttribute('fill','none');g.setAttribute('stroke','black');g.setAttribute('stroke-width',.08*units);root.append(g);
- result.rows.forEach((row,j)=>row.holes.forEach((p,i)=>{const c=doc.createElementNS(NS,'circle');for(const [k,v] of Object.entries({cx:p.x.toFixed(6),cy:p.y.toFixed(6),r:(diameter*units/2).toFixed(6),'data-hole':`${j?'B':'A'}_${String(i+1).padStart(2,'0')}`}))c.setAttribute(k,v);g.append(c);}));
+ result.rows.forEach((row,j)=>{if(state.latest.rowSources[j]!==sourceIndex)return;row.holes.forEach((p,i)=>{const c=doc.createElementNS(NS,'circle');for(const [k,v] of Object.entries({cx:((p.x-source.tx)/source.scale).toFixed(6),cy:((p.y-source.ty)/source.scale).toFixed(6),r:(diameter*units/2).toFixed(6),'data-hole':`${j?'B':'A'}_${String(i+1).padStart(2,'0')}`}))c.setAttribute(k,v);g.append(c);});});
  return '<?xml version="1.0" encoding="UTF-8"?>\n'+new XMLSerializer().serializeToString(root);
 }
-function file(){return new File([exportSVG()],'針穴配置済み.svg',{type:'image/svg+xml'});}
+function file(){const index=+$('exportSource').value;return new File([exportSVG(index)],state.sources.length>1?`型紙${index+1}_${state.sources[index].name.replace(/\.svg$/i,'')}_針穴.svg`:'針穴配置済み.svg',{type:'image/svg+xml'});}
 $('save').onclick=()=>{try{calculate();const f=file(),url=URL.createObjectURL(f),a=document.createElement('a');a.href=url;a.download=f.name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);message('SVGを作成しました。Safariのダウンロード、または「ファイルを共有」から保存してください。');}catch(e){message(e.message);}};
 $('share').onclick=async()=>{try{calculate();const f=file();if(!navigator.canShare?.({files:[f]}))throw Error('このブラウザでは共有できません。SVGを保存してください。');await navigator.share({files:[f]});}catch(e){if(e.name!=='AbortError')message(e.message);}};
 // Read-only diagnostics used by the regression suite; no external requests.
-window.stitch={state,loadSVG,exportSVG,calculate};
+window.stitch={state,loadSVG,loadSecondSVG,exportSVG,calculate};
 window.addEventListener('error',e=>{message('エラー：'+e.message);$('boot').textContent='エラーが発生しました';});
 sample();
