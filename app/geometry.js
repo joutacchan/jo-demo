@@ -173,3 +173,43 @@ export function alignCorners(line,{start=null,end=null}={}){
   const points=[a,...line.points.filter(p=>p.s>a.s+1e-8&&p.s<b.s-1e-8),b].map(p=>({...p,s:p.s-a.s}));
   return {...line,points,len:b.s-a.s};
 }
+
+// Join geometrically coincident endpoints without changing source paths.
+// Only unambiguous closed contours are accepted; nested contours use even/odd fill.
+export function interiorSides(paths,scale=1){
+ const fail=()=>{throw Error('内側を判定できません。線の端点が閉じた輪郭につながっているか確認するか、手動の右／左を選んでください。');};
+ const nodes=[],edges=[],epsilon=scale*1e-6;
+ const nodeFor=p=>{let n=nodes.find(n=>distance(n.p,p)<=epsilon);if(!n){n={p,edges:[]};nodes.push(n);}return n;};
+ paths.forEach((path,index)=>{
+  const a=nodeFor(path.start),b=nodeFor(path.segments.at(-1).at(-1));
+  const points=prepare(path,scale).tables.flatMap(t=>t.points);
+  const edge={a,b,points,index};edges.push(edge);a.edges.push(edge);b.edges.push(edge);
+ });
+ if(nodes.some(n=>n.edges.length!==2))fail();
+ const visited=new Set(),loops=[];
+ for(const first of edges){
+  if(visited.has(first))continue;
+  let edge=first,node=first.a;const polygon=[],members=[];
+  do{
+   if(visited.has(edge))fail();visited.add(edge);
+   const forward=edge.a===node;
+   polygon.push(...(forward?edge.points:[...edge.points].reverse()));
+   members.push({index:edge.index,forward});node=forward?edge.b:edge.a;
+   edge=node.edges.find(e=>!visited.has(e));
+  }while(edge);
+  if(node!==first.a)fail();
+  const area=polygon.slice(1).reduce((s,p,i)=>s+polygon[i].x*p.y-p.x*polygon[i].y,0);
+  if(Math.abs(area)<epsilon*epsilon)fail();
+  loops.push({polygon,members,area});
+ }
+ const contains=(poly,p)=>{let inside=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+  const a=poly[i],b=poly[j];if((a.y>p.y)!==(b.y>p.y)&&p.x<(b.x-a.x)*(p.y-a.y)/(b.y-a.y)+a.x)inside=!inside;
+ }return inside;};
+ const sides=[];
+ for(const loop of loops){
+  const depth=loops.filter(other=>other!==loop&&contains(other.polygon,loop.polygon[0])).length;
+  const side=Math.sign(loop.area)*(depth%2?-1:1);
+  for(const m of loop.members)sides[m.index]=side*(m.forward?1:-1);
+ }
+ return sides;
+}
