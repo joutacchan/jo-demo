@@ -213,3 +213,59 @@ export function interiorSides(paths,scale=1){
  }
  return sides;
 }
+
+// Follow the offset curve, continuing its end Bezier polynomial when necessary.
+// Walls are sampled original cut lines; a spatial index tests the 3mm clearance band.
+export function fitWalls(prepared,start,end,offset,side,walls,{startAuto=false,endAuto=false,clearance=3,maxLength=1000}={}){
+ const units=prepared.units,r=(clearance+.0003)*units,cell=Math.max(r,units),grid=new Map();
+ for(const wall of walls)for(const table of wall.prepared.tables)for(let i=1;i<table.points.length;i++){
+  const a=table.points[i-1],b=table.points[i];
+  for(let x=Math.floor((Math.min(a.x,b.x)-r)/cell);x<=Math.floor((Math.max(a.x,b.x)+r)/cell);x++)
+   for(let y=Math.floor((Math.min(a.y,b.y)-r)/cell);y<=Math.floor((Math.max(a.y,b.y)+r)/cell);y++){
+    const key=x+','+y;if(!grid.has(key))grid.set(key,[]);grid.get(key).push({a,b,index:wall.index});
+   }
+ }
+ function near(p){
+  let best={d:Infinity,index:null};
+  for(const {a,b,index} of grid.get(Math.floor(p.x/cell)+','+Math.floor(p.y/cell))||[]){
+   const dx=b.x-a.x,dy=b.y-a.y,t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy||1))),d=distance(p,mix(a,b,t));
+   if(d<best.d)best={d,index};
+  }return best;
+ }
+ const reverse=start>end,base=offsetLine(prepared,start,end,offset,side);
+ const full=offsetLine(prepared,startAuto?(reverse?1:0):start,endAuto?(reverse?0:1):end,offset,side);
+ const center=along(base,base.len/2);let anchor=0;
+ for(let i=1;i<full.points.length;i++)if(distance(full.points[i],center)<distance(full.points[anchor],center))anchor=i;
+ if(near(full.points[anchor]).d<=r)throw Error('区間の中央が壁から3mm以内です。始点・終点を見直してください。');
+ const autoWalls={};
+ function follow(isStart){
+  const points=isStart?full.points.slice(0,anchor+1).reverse():full.points.slice(anchor);
+  const kept=[points[0]];
+  function advance(p){
+   if(near(p).d<=r){
+    const a=kept.at(-1);let lo=0,hi=1;
+    for(let k=0;k<35;k++){const f=(lo+hi)/2,q=a.chunk===p.chunk?a.chunk.fn(a.t+(p.t-a.t)*f):mix(a,p,f);if(near(q).d<=r)hi=f;else lo=f;}
+    const f=(lo+hi)/2,q=a.chunk===p.chunk?{...a.chunk.fn(a.t+(p.t-a.t)*f),t:a.t+(p.t-a.t)*f,chunk:a.chunk}:mix(a,p,f);
+    autoWalls[isStart?'start':'end']=near(q).index;kept.push(q);return true;
+   }kept.push(p);return false;
+  }
+  let travelled=0;
+  for(const p of points.slice(1)){travelled+=distance(kept.at(-1),p);if(advance(p))return kept;}
+  const sourceStart=isStart?!reverse:reverse,c=sourceStart?prepared.path.segments[0]:prepared.path.segments.at(-1),boundary=sourceStart?0:1,step=sourceStart?-.125:.125;
+  const v0=tangent(c,boundary),sign=side*(reverse?-1:1);
+  const fn=t=>{const v=tangent(c,t);if(v.x*v0.x+v.y*v0.y<=0)throw Error('カーブの延長が折り返します。自動調整を解除して端点を指定してください。');const p=evaluate(c,t);return point(p.x-v.y*offset*sign,p.y+v.x*offset*sign);};
+  for(let k=0;k<32;k++){
+   const chunk=sample(fn,boundary+step*k,boundary+step*(k+1),.25*units,.0001*units);
+   for(const p of chunk.points.slice(1)){
+    travelled+=distance(kept.at(-1),p);if(travelled>maxLength*units)throw Error('延長範囲内に壁が見つかりません。自動調整を解除してください。');
+    if(advance({...p,chunk}))return kept;
+   }
+  }throw Error('カーブの延長範囲内に壁が見つかりません。自動調整を解除してください。');
+ }
+ const a=startAuto?follow(true):full.points.slice(0,anchor+1).reverse();
+ const b=endAuto?follow(false):full.points.slice(anchor);
+ const points=[...a.reverse(),...b.slice(1)];let len=0;
+ for(let i=0;i<points.length;i++){if(i)len+=distance(points[i-1],points[i]);points[i]={...points[i],s:len};}
+ if(len<1e-7)throw Error('壁から3mmを確保できる区間がありません。');
+ return {points,len,units,autoWalls};
+}
