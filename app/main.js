@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance} from './geometry.js?v=pinned-2';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners} from './geometry.js?v=pan-corners-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935'};
 const state={doc:null,paths:[],view:[0,0,2480,3505],base:[0,0,2480,3505],latest:null,cache:new Map(),calculations:0};
@@ -7,6 +7,13 @@ const message=text=>$('message').textContent=text;
 for(const name of ['A','B']){
  const div=document.createElement('div');div.className='line';div.dataset.name=name;
  div.innerHTML=`<h3>線${name}</h3><label>カット線<select id="path${name}"></select></label><div class="grid"><label>始点 %<input id="start${name}" type="number" min="0" max="100" step="0.1" value="0"></label><label>終点 %<input id="end${name}" type="number" min="0" max="100" step="0.1" value="100"></label></div><label>始点を調整<input id="rangeStart${name}" type="range" min="0" max="100" step="0.1" value="0"></label><label>終点を調整<input id="rangeEnd${name}" type="range" min="0" max="100" step="0.1" value="100"></label><div class="grid"><label>進行方向に対する側<select id="side${name}"><option value="1">右</option><option value="-1">左</option></select></label><label>オフセット mm<input id="offset${name}" type="number" min="0" max="100" step="0.1" value="3" disabled></label></div><label><input id="snap${name}" type="checkbox" checked>3mmにスナップ</label><button id="reverse${name}">始点と終点を入れ替え</button>`;
+ for(const end of ['start','end']){
+  const controls=document.createElement('div');controls.className='grid';
+  controls.innerHTML=`<label>${end==='start'?'始点':'終点'}の角を揃える<select id="corner${end}${name}"><option value="">揃えない</option></select></label><label>隣の辺のオフセット方向<select id="cornerSide${end}${name}"><option value="1">隣の辺の右</option><option value="-1">隣の辺の左</option></select></label>`;
+  div.append(controls);
+  for(const id of ['corner'+end+name,'cornerSide'+end+name])controls.querySelector('#'+id).onchange=schedule;
+ }
+ const help=document.createElement('p');help.className='hint';help.textContent='角を揃える：選んだ隣の辺も同じ距離でオフセットし、その交点に端の穴を合わせます。複数の交点がある場合は、指定した始点／終点に一番近い交点を使います。';div.append(help);
  $('lineFields').append(div);
  for(const end of ['Start','End']){
   const id=end.toLowerCase()+name;
@@ -14,7 +21,7 @@ for(const name of ['A','B']){
   $(id).oninput=e=>{$('range'+end+name).value=e.target.value;schedule();};
  }
  $('reverse'+name).onclick=()=>{const a=$('start'+name),b=$('end'+name);[a.value,b.value]=[b.value,a.value];syncRanges(name);calculate();};
- $('path'+name).onchange=()=>{$('start'+name).value=0;$('end'+name).value=100;syncRanges(name);calculate();};
+ $('path'+name).onchange=()=>{for(const endpoint of ['start','end'])$('corner'+endpoint+name).value='';$('start'+name).value=0;$('end'+name).value=100;syncRanges(name);calculate();};
 }
 function syncRanges(name){$('rangeStart'+name).value=$('start'+name).value;$('rangeEnd'+name).value=$('end'+name).value;}
 function number(id,min,max){const el=$(id),n=el.valueAsNumber;if(!Number.isFinite(n)||n<min||n>max)throw Error(`${el.parentElement.textContent.trim()}：${min}〜${max}の数値を入力してください。`);return n;}
@@ -37,7 +44,17 @@ function calculate(){
    const start=number('start'+name,0,100)/100,end=number('end'+name,0,100)/100,side=+$('side'+name).value;
    const key=idx+':'+units;
    if(!state.cache.has(key)){if(state.cache.size>30)state.cache.clear();state.cache.set(key,prepare(path,units));}
-   const line=offsetLine(state.cache.get(key),start,end,offset*units,side);lines.push(line);
+   let line=offsetLine(state.cache.get(key),start,end,offset*units,side);
+   const corners={};
+   for(const endpoint of ['start','end']){
+    const chosen=$('corner'+endpoint+name).value;if(chosen==='')continue;
+    const neighbor=+chosen;if(neighbor===idx)throw Error('角を揃える隣の辺は、自分以外の線を選んでください。');
+    const neighborKey=neighbor+':'+units;
+    if(!state.cache.has(neighborKey))state.cache.set(neighborKey,prepare(state.paths[neighbor],units));
+    corners[endpoint]=offsetLine(state.cache.get(neighborKey),0,1,offset*units,+$('cornerSide'+endpoint+name).value);
+   }
+   if(corners.start||corners.end)line=alignCorners(line,corners);
+   lines.push(line);
    node('path',{d:line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '),stroke:colors[name]},$('guides'));
   }
   const result=place(...lines,{mode:$('countMode').value,count,minPitch});
@@ -82,10 +99,15 @@ export function loadSVG(text,name='SVG'){
   const select=$('path'+name);select.replaceChildren();
   paths.forEach((_,i)=>{const o=document.createElement('option');o.value=i;o.textContent=`カット線 ${i+1}`;select.append(o);});
   select.value=Math.min(name==='A'?5:6,paths.length-(name==='A'?2:1));
+  for(const endpoint of ['start','end']){
+   const corners=$('corner'+endpoint+name);corners.replaceChildren(new Option('揃えない',''));
+   paths.forEach((_,i)=>corners.append(new Option('カット線 '+(i+1),String(i))));
+   $('cornerSide'+endpoint+name).value='1';
+  }
   $('start'+name).value=0;$('end'+name).value=100;syncRanges(name);
  }
  $('sourceName').textContent=`${name} · ${doc.querySelectorAll('path').length}パス / ${paths.length}サブパス`;
- applyView();calculate();message('読み込みました。線A・Bは番号か図上のタップで選べます。');
+ applyView();calculate();message('ドラッグで移動、2本指でズーム。タップで線や端点を指定できます。');
 }
 async function sample(){try{const r=await fetch('assets/source/名称未設定 3.svg');if(!r.ok)throw Error('サンプルを読み込めません。');loadSVG(await r.text(),'原本サンプル');$('boot').textContent='操作の準備ができました';}catch(e){message(e.message);$('boot').textContent='起動に失敗しました。SafariでWebページとして開いてください。';}}
 $('sample').onclick=sample;
@@ -98,7 +120,7 @@ function zoom(factor,x,y){
 }
 for(const [id,f] of [['plus',1.4],['minus',1/1.4]])$(id).onclick=()=>{const r=$('canvas').getBoundingClientRect();zoom(f,r.x+r.width/2,r.y+r.height/2);};
 $('fit').onclick=()=>{state.view=[...state.base];applyView();};
-$('mode').onchange=()=>{$('modeHint').textContent=`現在のモード：${$('mode').selectedOptions[0].textContent} ／ 編集対象：${$('active').value}。2本指は常に拡大・移動。`};$('active').onchange=$('mode').onchange;
+$('mode').onchange=()=>{$('modeHint').textContent=`現在のモード：${$('mode').selectedOptions[0].textContent} ／ 編集対象：${$('active').value}。ドラッグで上下左右に移動、2本指で拡大・移動。タップで選択・端点指定。`};$('active').onchange=$('mode').onchange;
 function nearest(points,p){let best={d:Infinity,s:0};for(let i=1;i<points.length;i++){const a=points[i-1],b=points[i],dx=b.x-a.x,dy=b.y-a.y,f=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy||1))),q={x:a.x+dx*f,y:a.y+dy*f},d=distance(q,p);if(d<best.d)best={d,s:a.s+(b.s-a.s)*f};}return best;}
 function hit(x,y){
  const mode=$('mode').value;if(mode==='pan'||!state.doc)return;
@@ -116,7 +138,7 @@ $('stage').onpointerdown=e=>{if(e.pointerType==='mouse'&&e.button!==0)return;$('
 $('stage').onpointermove=e=>{
  const p=pointers.get(e.pointerId);if(!p)return;const before=local(p.x,p.y);p.x=e.clientX;p.y=e.clientY;p.moved ||=Math.hypot(p.x-p.sx,p.y-p.sy)>6;
  if(pointers.size>1){const next=pinch();if(gesture){const anchor=local(gesture.x,gesture.y);zoom(next.d/gesture.d,gesture.x,gesture.y);const now=local(next.x,next.y);state.view[0]+=anchor.x-now.x;state.view[1]+=anchor.y-now.y;applyView();}gesture=next;}
- else if($('mode').value==='pan'){const now=local(p.x,p.y);state.view[0]+=before.x-now.x;state.view[1]+=before.y-now.y;applyView();}
+ else if(p.moved){const now=local(p.x,p.y);state.view[0]+=before.x-now.x;state.view[1]+=before.y-now.y;applyView();}
 };
 function endPointer(e,cancel=false){const p=pointers.get(e.pointerId);if(!p)return;if(!cancel&&!multi&&!p.moved)try{hit(e.clientX,e.clientY);}catch(err){message(err.message);}pointers.delete(e.pointerId);gesture=pinch();if(!pointers.size)multi=false;}
 $('stage').onpointerup=e=>endPointer(e);$('stage').onpointercancel=e=>endPointer(e,true);$('stage').onlostpointercapture=e=>endPointer(e,true);

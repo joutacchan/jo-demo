@@ -140,3 +140,36 @@ export function place(a,b,{mode='fixed',count=13,minPitch=10}={}){
   const valid=rows.every(r=>r.pitch>=minPitch);
   return {count,rows,valid,warning:!valid?'弧長ピッチが下限未満です。区間を広げるか穴数を減らしてください。':rows.some(r=>r.minChord<minPitch)?'弧長条件は満たしますが、穴中心の直線距離が下限未満です。':''};
 }
+
+// Find intersections of two sampled offset curves in root SVG coordinates.
+// The small adaptive-polyline error is inherited from offsetLine's tolerance.
+export function cornerIntersections(line,neighbor){
+  const hits=[],b=neighbor.points;
+  const segments=b.slice(1).map((q,i)=>{const p=b[i];return {p,q,minX:Math.min(p.x,q.x),maxX:Math.max(p.x,q.x),minY:Math.min(p.y,q.y),maxY:Math.max(p.y,q.y)};});
+  for(let i=1;i<line.points.length;i++){
+    const p=line.points[i-1],q=line.points[i],dx=q.x-p.x,dy=q.y-p.y;
+    const minX=Math.min(p.x,q.x),maxX=Math.max(p.x,q.x),minY=Math.min(p.y,q.y),maxY=Math.max(p.y,q.y);
+    for(const seg of segments){
+      if(seg.maxX<minX-1e-8||seg.minX>maxX+1e-8||seg.maxY<minY-1e-8||seg.minY>maxY+1e-8)continue;
+      const ex=seg.q.x-seg.p.x,ey=seg.q.y-seg.p.y,den=dx*ey-dy*ex;
+      if(Math.abs(den)<1e-14)continue;
+      const ax=seg.p.x-p.x,ay=seg.p.y-p.y,t=(ax*ey-ay*ex)/den,u=(ax*dy-ay*dx)/den;
+      if(t< -1e-8||t>1+1e-8||u< -1e-8||u>1+1e-8)continue;
+      const s=p.s+Math.max(0,Math.min(1,t))*(q.s-p.s);
+      if(!hits.some(h=>Math.abs(h.s-s)<1e-7))hits.push({s,x:p.x+t*dx,y:p.y+t*dy});
+    }
+  }
+  return hits;
+}
+export function alignCorners(line,{start=null,end=null}={}){
+  function pick(other,endpoint){
+    const hits=cornerIntersections(line,other);
+    if(!hits.length)throw Error('角の交点がありません。隣の辺・左右方向を確認し、始終点の区間を広げてください。');
+    return hits.reduce((best,p)=>Math.abs(p.s-endpoint)<Math.abs(best.s-endpoint)?p:best);
+  }
+  const a=start?pick(start,0):{...line.points[0],s:0};
+  const b=end?pick(end,line.len):{...line.points.at(-1),s:line.len};
+  if(b.s-a.s<1e-7)throw Error('角を揃えると始点と終点が逆転または一致します。隣の辺を確認してください。');
+  const points=[a,...line.points.filter(p=>p.s>a.s+1e-8&&p.s<b.s-1e-8),b].map(p=>({...p,s:p.s-a.s}));
+  return {...line,points,len:b.s-a.s};
+}
