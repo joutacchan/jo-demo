@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides} from './geometry.js?v=undo-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides} from './geometry.js?v=redo-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935'};
 const state={doc:null,paths:[],view:[0,0,2480,3505],base:[0,0,2480,3505],latest:null,cache:new Map(),calculations:0};
@@ -30,7 +30,7 @@ function number(id,min,max){const el=$(id),n=el.valueAsNumber;if(!Number.isFinit
 let frame=0;function schedule(){cancelAnimationFrame(frame);frame=requestAnimationFrame(calculate);}
 for(const id of ['width','diameter','count','pitch','countMode',...['A','B'].flatMap(n=>['side','offset','snap'].map(k=>k+n))])$(id).addEventListener('input',schedule);
 // History stores editor values and immutable source text, never generated hole SVG.
-const history=[];let previous=null,restoring=false,editGroup=null,groupRecorded=false;
+const history=[],future=[];let previous=null,restoring=false,editGroup=null,groupRecorded=false;
 const fields=()=>[...document.querySelectorAll('aside input[id],aside select[id]')].filter(e=>e.type!=='file'&&e.type!=='range');
 function snapshot(){return {source:state.sourceText,name:state.sourceLabel,view:[...state.view],values:fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value])};}
 function same(a,b){return JSON.stringify(a)===JSON.stringify(b);}
@@ -38,12 +38,13 @@ function checkpoint(){
  if(restoring||!state.doc)return;
  const current=snapshot();
  if(previous&&!same(previous,current)){
+  future.length=0;
   const key=editGroup?.replace(/^rangeStart/,'start').replace(/^rangeEnd/,'end');
   const grouped=key&&previous.source===current.source&&same(previous.view,current.view)&&current.values.every(([id,v],i)=>id===key||same(previous.values[i],[id,v]));
   if(!grouped||!groupRecorded){history.push(previous);if(history.length>100)history.shift();}
   if(!grouped)editGroup=null;groupRecorded=!!grouped;
  }
- previous=current;$('undo').disabled=!history.length;
+ previous=current;updateHistoryButtons();
 }
 function calculate(){cancelAnimationFrame(frame);frame=0;checkpoint();recalculate();if(!restoring&&state.doc)previous=snapshot();}
 // One continuous field edit (typing or dragging a slider) is one undo step.
@@ -53,19 +54,23 @@ document.querySelector('aside').addEventListener('focusin',e=>{
 document.querySelector('aside').addEventListener('focusout',()=>{
  if(frame){cancelAnimationFrame(frame);frame=0;calculate();}editGroup=null;groupRecorded=false;
 });
-$('undo').onclick=()=>{
+function updateHistoryButtons(){$('undo').disabled=!history.length;$('redo').disabled=!future.length;}
+function restoreHistory(from,to,text){
  cancelAnimationFrame(frame);frame=0;
  // Include a pending edit before restoring its predecessor.
- checkpoint();const saved=history.pop();if(!saved)return;
+ checkpoint();const saved=from.pop();if(!saved)return;
+ to.push(snapshot());if(to.length>100)to.shift();
  restoring=true;
  try{
   if(saved.source!==state.sourceText)loadSVG(saved.source,saved.name);
   for(const [id,value] of saved.values){const e=$(id);if(e.type==='checkbox')e.checked=value;else e.value=value;}
   for(const name of ['A','B'])syncRanges(name);
   state.view=[...saved.view];applyView();recalculate();
- }finally{restoring=false;editGroup=null;groupRecorded=false;previous=snapshot();$('undo').disabled=!history.length;}
- message('1つ前の状態に戻しました。');
-};
+ }finally{restoring=false;editGroup=null;groupRecorded=false;previous=snapshot();updateHistoryButtons();}
+ message(text);
+}
+$('undo').onclick=()=>restoreHistory(history,future,'1つ前の状態に戻しました。');
+$('redo').onclick=()=>restoreHistory(future,history,'1つ先の状態に進みました。');
 function resolveSide(value,index,reverse=false){
  if(value!=='auto')return +value;
  if(!state.inside)throw Error(state.insideError);
