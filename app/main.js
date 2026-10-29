@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides} from './geometry.js?v=touch-layout-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides} from './geometry.js?v=corner-preview-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935'};
 const state={doc:null,paths:[],view:[0,0,2480,3505],base:[0,0,2480,3505],latest:null,cache:new Map(),calculations:0};
@@ -86,7 +86,7 @@ function recalculate(){
   const auto=$('countMode').value==='auto';
   const count=auto?13:number('count',2,1000);$('count').disabled=auto;
   if($('pathA').value===$('pathB').value)throw Error('AとBは異なるカット線を選んでください。');
-  const lines=[];
+  const lines=[],cornerErrors=[];
   for(const name of ['A','B']){
    const idx=+$('path'+name).value,path=state.paths[idx];
    $('offset'+name).disabled=$('snap'+name).checked;
@@ -95,6 +95,8 @@ function recalculate(){
    const key=idx+':'+units;
    if(!state.cache.has(key)){if(state.cache.size>30)state.cache.clear();state.cache.set(key,prepare(path,units));}
    let line=offsetLine(state.cache.get(key),start,end,offset*units,side);
+   const guide=node('path',{d:line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '),stroke:colors[name],'data-line':name},$('guides'));
+   try{
    const corners={};
    for(const endpoint of ['start','end']){
     const chosen=$('corner'+endpoint+name).value;if(chosen==='')continue;
@@ -104,9 +106,11 @@ function recalculate(){
     corners[endpoint]=offsetLine(state.cache.get(neighborKey),0,1,offset*units,resolveSide($('cornerSide'+endpoint+name).value,neighbor));
    }
    if(corners.start||corners.end)line=alignCorners(line,corners);
+   guide.setAttribute('d',line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '));
+   }catch(e){cornerErrors.push(`線${name}：${e.message}`);guide.setAttribute('data-corner-error','true');}
    lines.push(line);
-   node('path',{d:line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '),stroke:colors[name]},$('guides'));
   }
+  if(cornerErrors.length)throw Error(cornerErrors.join(' ')+' 角合わせできない側は調整前の点線を表示しています。隣辺を選び直すか、↶で戻してください。');
   const result=place(...lines,{mode:$('countMode').value,count,minPitch});
   if(auto)$('count').value=result.count;
   result.rows.forEach((row,j)=>{
@@ -191,7 +195,7 @@ function hit(x,y){
  let best={d:Infinity};
  for(const i of candidates){const key=i+':'+units;if(!state.cache.has(key))state.cache.set(key,prepare(state.paths[i],units));const prep=state.cache.get(key);let passed=0;for(const table of prep.tables){const match=nearest(table.points,p);if(match.d<best.d)best={d:match.d,index:i,percent:100*(passed+match.s)/prep.total};passed+=table.len;}}
  if(best.d>limit){message('線の近くをタップしてください。番号リストからも選択できます。');return;}
- if(corner){const name=$('active').value;$(mode+name).value=best.index;calculate();message(`線${name}の${mode==='cornerstart'?'始点':'終点'}の隣辺を選びました。図の太い線で確認できます。別の辺をタップすると変更できます。`);}
+ if(corner){const name=$('active').value;$(mode+name).value=best.index;calculate();message($('warning').textContent||`線${name}の${mode==='cornerstart'?'始点':'終点'}の隣辺を選びました。図の太い線で確認できます。別の辺をタップすると変更できます。`);}
  else if(mode==='A'||mode==='B'){$('path'+mode).value=best.index;$('path'+mode).onchange();message(`線${mode}にカット線${best.index+1}を選びました。`);}
  else{const name=$('active').value;$(mode+name).value=best.percent.toFixed(1);syncRanges(name);calculate();message(`線${name}の${mode==='start'?'始点':'終点'}を変更しました。`);}
 }
