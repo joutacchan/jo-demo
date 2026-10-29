@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides} from './geometry.js?v=inside-auto-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides} from './geometry.js?v=corner-tap-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935'};
 const state={doc:null,paths:[],view:[0,0,2480,3505],base:[0,0,2480,3505],latest:null,cache:new Map(),calculations:0};
@@ -10,10 +10,12 @@ for(const name of ['A','B']){
  for(const end of ['start','end']){
   const controls=document.createElement('div');controls.className='grid';
   controls.innerHTML=`<label>${end==='start'?'始点':'終点'}の角を揃える<select id="corner${end}${name}"><option value="">揃えない</option></select></label><label>隣の辺のオフセット方向<select id="cornerSide${end}${name}"><option value="auto">内側（自動）</option><option value="1">隣の辺の右（手動）</option><option value="-1">隣の辺の左</option></select></label>`;
-  div.append(controls);
+  const pick=document.createElement('button');pick.id='pickCorner'+end+name;pick.textContent=`${end==='start'?'始点':'終点'}の隣の辺を図で選ぶ`;
+  pick.onclick=()=>{$('active').value=name;$('mode').value='corner'+end;$('mode').onchange();message(`線${name}の${end==='start'?'始点':'終点'}で角を揃える隣の辺をタップしてください。ドラッグで移動もできます。`);};
+  controls.append(pick);div.append(controls);
   for(const id of ['corner'+end+name,'cornerSide'+end+name])controls.querySelector('#'+id).onchange=schedule;
  }
- const help=document.createElement('p');help.className='hint';help.textContent='角を揃える：選んだ隣の辺も同じ距離でオフセットし、その交点に端の穴を合わせます。複数の交点がある場合は、指定した始点／終点に一番近い交点を使います。';div.append(help);
+ const help=document.createElement('p');help.className='hint';help.textContent='角を揃える：「隣の辺を図で選ぶ」を押して、型紙の線をタップ。選んだ辺はAが青、Bが赤、始点は実線・終点は破線で表示します。選んだ隣の辺も同じ距離でオフセットし、その交点に端の穴を合わせます。複数の交点がある場合は、指定した始点／終点に一番近い交点を使います。';div.append(help);
  $('lineFields').append(div);
  for(const end of ['Start','End']){
   const id=end.toLowerCase()+name;
@@ -35,6 +37,7 @@ function resolveSide(value,index,reverse=false){
 function calculate(){
  state.calculations++;state.latest=null;$('save').disabled=$('share').disabled=true;$('warning').textContent='';$('stats').replaceChildren();
  for(const id of ['guides','holes','markers'])$(id).replaceChildren();
+ renderCornerSelections();
  try{
   if(!state.doc)return;
   const width=number('width',1,10000),units=state.base[2]/width,diameter=number('diameter',.1,10),minPitch=number('pitch',10,1000);
@@ -126,16 +129,28 @@ function zoom(factor,x,y){
 }
 for(const [id,f] of [['plus',1.4],['minus',1/1.4]])$(id).onclick=()=>{const r=$('canvas').getBoundingClientRect();zoom(f,r.x+r.width/2,r.y+r.height/2);};
 $('fit').onclick=()=>{state.view=[...state.base];applyView();};
-$('mode').onchange=()=>{$('modeHint').textContent=`現在のモード：${$('mode').selectedOptions[0].textContent} ／ 編集対象：${$('active').value}。ドラッグで上下左右に移動、2本指で拡大・移動。タップで選択・端点指定。`};$('active').onchange=$('mode').onchange;
+$('mode').onchange=()=>{renderCornerSelections();$('modeHint').textContent=`現在のモード：${$('mode').selectedOptions[0].textContent} ／ 編集対象：${$('active').value}。ドラッグで上下左右に移動、2本指で拡大・移動。タップで選択・端点指定。`};$('active').onchange=$('mode').onchange;
+function renderCornerSelections(){
+ const group=$('neighbors');group.replaceChildren();if(!state.doc)return;
+ for(const name of ['A','B'])for(const end of ['start','end']){
+  const value=$('corner'+end+name).value;if(value==='')continue;
+  const path=state.paths[+value];if(!path)continue;
+  const d='M'+path.start.x+','+path.start.y+path.segments.map(c=>(c.length===2?'L':c.length===3?'Q':'C')+c.slice(1).map(p=>p.x+','+p.y).join(' ')).join(' ');
+  const mark=node('path',{d,fill:'none',stroke:colors[name],'stroke-width':5,'stroke-opacity':.65,'vector-effect':'non-scaling-stroke','stroke-dasharray':end==='end'?'8 4':'none','data-corner':end+name},group);
+  node('title',{},mark).textContent=`線${name}の${end==='start'?'始点':'終点'}の隣辺`;
+ }
+}
 function nearest(points,p){let best={d:Infinity,s:0};for(let i=1;i<points.length;i++){const a=points[i-1],b=points[i],dx=b.x-a.x,dy=b.y-a.y,f=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy||1))),q={x:a.x+dx*f,y:a.y+dy*f},d=distance(q,p);if(d<best.d)best={d,s:a.s+(b.s-a.s)*f};}return best;}
 function hit(x,y){
  const mode=$('mode').value;if(mode==='pan'||!state.doc)return;
  const p=local(x,y),q=local(x+28,y),limit=distance(p,q),units=state.base[2]/number('width',1,10000);
- const candidates=mode==='A'||mode==='B'?state.paths.map((_,i)=>i):[+$('path'+$('active').value).value];
+ const corner=mode==='cornerstart'||mode==='cornerend';
+ const candidates=mode==='A'||mode==='B'||corner?state.paths.map((_,i)=>i).filter(i=>!corner||i!==+$('path'+$('active').value).value):[+$('path'+$('active').value).value];
  let best={d:Infinity};
  for(const i of candidates){const key=i+':'+units;if(!state.cache.has(key))state.cache.set(key,prepare(state.paths[i],units));const prep=state.cache.get(key);let passed=0;for(const table of prep.tables){const match=nearest(table.points,p);if(match.d<best.d)best={d:match.d,index:i,percent:100*(passed+match.s)/prep.total};passed+=table.len;}}
  if(best.d>limit){message('線の近くをタップしてください。番号リストからも選択できます。');return;}
- if(mode==='A'||mode==='B'){$('path'+mode).value=best.index;$('path'+mode).onchange();message(`線${mode}にカット線${best.index+1}を選びました。`);}
+ if(corner){const name=$('active').value;$(mode+name).value=best.index;calculate();message(`線${name}の${mode==='cornerstart'?'始点':'終点'}の隣辺を選びました。図の太い線で確認できます。別の辺をタップすると変更できます。`);}
+ else if(mode==='A'||mode==='B'){$('path'+mode).value=best.index;$('path'+mode).onchange();message(`線${mode}にカット線${best.index+1}を選びました。`);}
  else{const name=$('active').value;$(mode+name).value=best.percent.toFixed(1);syncRanges(name);calculate();message(`線${name}の${mode==='start'?'始点':'終点'}を変更しました。`);}
 }
 const pointers=new Map();let gesture=null,multi=false;
