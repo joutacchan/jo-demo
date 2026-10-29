@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides} from './geometry.js?v=corner-tap-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides} from './geometry.js?v=undo-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935'};
 const state={doc:null,paths:[],view:[0,0,2480,3505],base:[0,0,2480,3505],latest:null,cache:new Map(),calculations:0};
@@ -29,12 +29,49 @@ function syncRanges(name){$('rangeStart'+name).value=$('start'+name).value;$('ra
 function number(id,min,max){const el=$(id),n=el.valueAsNumber;if(!Number.isFinite(n)||n<min||n>max)throw Error(`${el.parentElement.textContent.trim()}：${min}〜${max}の数値を入力してください。`);return n;}
 let frame=0;function schedule(){cancelAnimationFrame(frame);frame=requestAnimationFrame(calculate);}
 for(const id of ['width','diameter','count','pitch','countMode',...['A','B'].flatMap(n=>['side','offset','snap'].map(k=>k+n))])$(id).addEventListener('input',schedule);
+// History stores editor values and immutable source text, never generated hole SVG.
+const history=[];let previous=null,restoring=false,editGroup=null,groupRecorded=false;
+const fields=()=>[...document.querySelectorAll('aside input[id],aside select[id]')].filter(e=>e.type!=='file'&&e.type!=='range');
+function snapshot(){return {source:state.sourceText,name:state.sourceLabel,view:[...state.view],values:fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value])};}
+function same(a,b){return JSON.stringify(a)===JSON.stringify(b);}
+function checkpoint(){
+ if(restoring||!state.doc)return;
+ const current=snapshot();
+ if(previous&&!same(previous,current)){
+  const key=editGroup?.replace(/^rangeStart/,'start').replace(/^rangeEnd/,'end');
+  const grouped=key&&previous.source===current.source&&same(previous.view,current.view)&&current.values.every(([id,v],i)=>id===key||same(previous.values[i],[id,v]));
+  if(!grouped||!groupRecorded){history.push(previous);if(history.length>100)history.shift();}
+  if(!grouped)editGroup=null;groupRecorded=!!grouped;
+ }
+ previous=current;$('undo').disabled=!history.length;
+}
+function calculate(){cancelAnimationFrame(frame);frame=0;checkpoint();recalculate();if(!restoring&&state.doc)previous=snapshot();}
+// One continuous field edit (typing or dragging a slider) is one undo step.
+document.querySelector('aside').addEventListener('focusin',e=>{
+ editGroup=e.target.matches('input[type=number],input[type=range]')?e.target.id:null;groupRecorded=false;
+});
+document.querySelector('aside').addEventListener('focusout',()=>{
+ if(frame){cancelAnimationFrame(frame);frame=0;calculate();}editGroup=null;groupRecorded=false;
+});
+$('undo').onclick=()=>{
+ cancelAnimationFrame(frame);frame=0;
+ // Include a pending edit before restoring its predecessor.
+ checkpoint();const saved=history.pop();if(!saved)return;
+ restoring=true;
+ try{
+  if(saved.source!==state.sourceText)loadSVG(saved.source,saved.name);
+  for(const [id,value] of saved.values){const e=$(id);if(e.type==='checkbox')e.checked=value;else e.value=value;}
+  for(const name of ['A','B'])syncRanges(name);
+  state.view=[...saved.view];applyView();recalculate();
+ }finally{restoring=false;editGroup=null;groupRecorded=false;previous=snapshot();$('undo').disabled=!history.length;}
+ message('1つ前の状態に戻しました。');
+};
 function resolveSide(value,index,reverse=false){
  if(value!=='auto')return +value;
  if(!state.inside)throw Error(state.insideError);
  return state.inside[index]*(reverse?-1:1);
 }
-function calculate(){
+function recalculate(){
  state.calculations++;state.latest=null;$('save').disabled=$('share').disabled=true;$('warning').textContent='';$('stats').replaceChildren();
  for(const id of ['guides','holes','markers'])$(id).replaceChildren();
  renderCornerSelections();
@@ -100,7 +137,7 @@ function validateDocument(doc){
 }
 export function loadSVG(text,name='SVG'){
  const doc=new DOMParser().parseFromString(text,'image/svg+xml'),{box,paths}=validateDocument(doc);
- state.doc=doc;state.paths=paths;state.inside=null;state.insideError='';try{state.inside=interiorSides(paths,box[2]/210);}catch(e){state.insideError=e.message;}state.base=box;state.cache.clear();state.view=[...box];
+ state.sourceText=text;state.sourceLabel=name;state.doc=doc;state.paths=paths;state.inside=null;state.insideError='';try{state.inside=interiorSides(paths,box[2]/210);}catch(e){state.insideError=e.message;}state.base=box;state.cache.clear();state.view=[...box];
  const drawing=$('drawing');drawing.replaceChildren();drawing.setAttribute('style',doc.documentElement.getAttribute('style')||'');
  for(const e of doc.documentElement.children)drawing.append(document.importNode(e,true));
  for(const name of ['A','B']){
@@ -127,8 +164,8 @@ function zoom(factor,x,y){
  const before=local(x,y),v=state.view,w=Math.max(state.base[2]/40,Math.min(state.base[2]*4,v[2]/factor)),ratio=w/v[2];
  state.view=[before.x+(v[0]-before.x)*ratio,before.y+(v[1]-before.y)*ratio,w,v[3]*ratio];applyView();
 }
-for(const [id,f] of [['plus',1.4],['minus',1/1.4]])$(id).onclick=()=>{const r=$('canvas').getBoundingClientRect();zoom(f,r.x+r.width/2,r.y+r.height/2);};
-$('fit').onclick=()=>{state.view=[...state.base];applyView();};
+for(const [id,f] of [['plus',1.4],['minus',1/1.4]])$(id).onclick=()=>{const r=$('canvas').getBoundingClientRect();zoom(f,r.x+r.width/2,r.y+r.height/2);checkpoint();};
+$('fit').onclick=()=>{state.view=[...state.base];applyView();checkpoint();};
 $('mode').onchange=()=>{renderCornerSelections();$('modeHint').textContent=`現在のモード：${$('mode').selectedOptions[0].textContent} ／ 編集対象：${$('active').value}。ドラッグで上下左右に移動、2本指で拡大・移動。タップで選択・端点指定。`};$('active').onchange=$('mode').onchange;
 function renderCornerSelections(){
  const group=$('neighbors');group.replaceChildren();if(!state.doc)return;
@@ -161,7 +198,7 @@ $('stage').onpointermove=e=>{
  if(pointers.size>1){const next=pinch();if(gesture){const anchor=local(gesture.x,gesture.y);zoom(next.d/gesture.d,gesture.x,gesture.y);const now=local(next.x,next.y);state.view[0]+=anchor.x-now.x;state.view[1]+=anchor.y-now.y;applyView();}gesture=next;}
  else if(p.moved){const now=local(p.x,p.y);state.view[0]+=before.x-now.x;state.view[1]+=before.y-now.y;applyView();}
 };
-function endPointer(e,cancel=false){const p=pointers.get(e.pointerId);if(!p)return;if(!cancel&&!multi&&!p.moved)try{hit(e.clientX,e.clientY);}catch(err){message(err.message);}pointers.delete(e.pointerId);gesture=pinch();if(!pointers.size)multi=false;}
+function endPointer(e,cancel=false){const p=pointers.get(e.pointerId);if(!p)return;if(!cancel&&!multi&&!p.moved)try{hit(e.clientX,e.clientY);}catch(err){message(err.message);}pointers.delete(e.pointerId);gesture=pinch();if(!pointers.size){multi=false;checkpoint();}}
 $('stage').onpointerup=e=>endPointer(e);$('stage').onpointercancel=e=>endPointer(e,true);$('stage').onlostpointercapture=e=>endPointer(e,true);
 export function exportSVG(){
  if(!state.latest)throw Error('条件を満たす配置を作成してください。');
