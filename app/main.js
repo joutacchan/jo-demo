@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls} from './geometry.js?v=auto-walls-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls} from './geometry.js?v=wall-fallback-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935'};
 const state={doc:null,paths:[],view:[0,0,2480,3505],base:[0,0,2480,3505],latest:null,cache:new Map(),calculations:0};
@@ -13,11 +13,11 @@ for(const name of ['A','B']){
   const pick=document.createElement('button');pick.id='pickCorner'+end+name;pick.className='pick-corner';pick.textContent=`${end==='start'?'始点':'終点'}の隣の辺を図で選ぶ`;
   pick.onclick=()=>{document.activeElement?.blur();$('stage').focus({preventScroll:true});$('active').value=name;$('mode').value='corner'+end;$('mode').onchange();message(`線${name}の${end==='start'?'始点':'終点'}で角を揃える隣の辺をタップしてください。ドラッグで移動もできます。`);};
   const autoPick=document.createElement('button');autoPick.id='autoWall'+end+name;autoPick.className='pick-corner';autoPick.textContent=`${end==='start'?'始点':'終点'}を壁から3mmに自動調整`;
-  autoPick.onclick=()=>{document.activeElement?.blur();$('stage').focus({preventScroll:true});$('corner'+end+name).value='auto';calculate();message($('warning').textContent||'カーブに沿って壁を探し、壁から3mmの位置に合わせました。');};
+  autoPick.onclick=()=>{document.activeElement?.blur();$('stage').focus({preventScroll:true});$('corner'+end+name).value='auto';calculate();message($('warning').textContent||'壁が見つかった端は3mm手前へ、見つからない端は元の位置を使います。');};
   controls.append(autoPick,pick);div.append(controls);
   for(const id of ['corner'+end+name,'cornerSide'+end+name])controls.querySelector('#'+id).onchange=schedule;
  }
- const help=document.createElement('p');help.className='hint';help.textContent='角を揃える：「隣の辺を図で選ぶ」を押して、型紙の線をタップ。選んだ辺はAが青、Bが赤、始点は実線・終点は破線で表示します。選んだ隣の辺も同じ距離でオフセットし、その交点に端の穴を合わせます。「壁から3mmに自動調整」はカーブを延ばして最初の壁を探します。壁がない・折り返す場合は停止します。自動中の始終点%は探索の基準区間で、調整後の端は図の点線で確認できます。手動選択で複数の交点がある場合は指定端に近い交点を使います。';div.append(help);
+ const help=document.createElement('p');help.className='hint';help.textContent='角を揃える：「隣の辺を図で選ぶ」を押して、型紙の線をタップ。選んだ辺はAが青、Bが赤、始点は実線・終点は破線で表示します。選んだ隣の辺も同じ距離でオフセットし、その交点に端の穴を合わせます。「壁から3mmに自動調整」はカーブを延ばして最初の壁を探します。壁が見つからない端は元の位置を使います。折り返す場合は停止します。自動中の始終点%は探索の基準区間で、調整後の端は図の点線で確認できます。手動選択で複数の交点がある場合は指定端に近い交点を使います。';div.append(help);
  $('lineFields').append(div);
  for(const end of ['Start','End']){
   const id=end.toLowerCase()+name;
@@ -101,7 +101,7 @@ function recalculate(){
    try{
    const startAuto=$('cornerstart'+name).value==='auto',endAuto=$('cornerend'+name).value==='auto';
    if(startAuto||endAuto){
-    if(!state.inside||side!==state.inside[idx]*(start>end?-1:1))throw Error('壁の自動調整には、内側と判定できる輪郭と内側への配置が必要です。');
+    if(state.inside&&side!==state.inside[idx]*(start>end?-1:1))throw Error('壁の自動調整は内側への配置で使ってください。');
     const walls=state.paths.flatMap((p,i)=>{
      if(i===idx)return [];const key=i+':'+units;
      if(!state.cache.has(key))state.cache.set(key,prepare(p,units));return [{index:i,prepared:state.cache.get(key)}];
@@ -134,7 +134,7 @@ function recalculate(){
     node('circle',{cx:p.x,cy:p.y,r:5*px,fill:colors[name]},$('markers'));
     node('text',{x:p.x+8*px,y:p.y-8*px,'font-size':12*px,style:`font-size:${12*px}px`},$('markers')).textContent=label;
    }
-   const div=document.createElement('div');div.className='result';div.textContent=`${name}：${result.count}穴 ／ 縫い線 ${(lines[j].len/units).toFixed(3)}mm ／ 弧長ピッチ ${row.pitch.toFixed(3)}mm ／ 中心の直線距離 ${row.minChord.toFixed(3)}〜${row.maxChord.toFixed(3)}mm${Object.keys(lines[j].autoWalls||{}).map(end=>` ／ ${end==='start'?'始点':'終点'}：壁から3mm（自動）`).join('')}`;$('stats').append(div);
+   const div=document.createElement('div');div.className='result';div.textContent=`${name}：${result.count}穴 ／ 縫い線 ${(lines[j].len/units).toFixed(3)}mm ／ 弧長ピッチ ${row.pitch.toFixed(3)}mm ／ 中心の直線距離 ${row.minChord.toFixed(3)}〜${row.maxChord.toFixed(3)}mm${Object.keys(lines[j].autoWalls||{}).map(end=>` ／ ${end==='start'?'始点':'終点'}：壁から3mm（自動）`).join('')}${(lines[j].unchangedEnds||[]).map(end=>` ／ ${end==='start'?'始点':'終点'}：壁未検出・元の位置`).join('')}`;$('stats').append(div);
   });
   $('warning').textContent=result.warning;
   if(result.valid){state.latest={result,lines,units,width,diameter};$('save').disabled=false;$('share').disabled=!navigator.canShare;}

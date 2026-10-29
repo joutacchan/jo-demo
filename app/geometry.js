@@ -257,15 +257,29 @@ export function fitWalls(prepared,start,end,offset,side,walls,{startAuto=false,e
   for(let k=0;k<32;k++){
    const chunk=sample(fn,boundary+step*k,boundary+step*(k+1),.25*units,.0001*units);
    for(const p of chunk.points.slice(1)){
-    travelled+=distance(kept.at(-1),p);if(travelled>maxLength*units)throw Error('延長範囲内に壁が見つかりません。自動調整を解除してください。');
+    travelled+=distance(kept.at(-1),p);if(travelled>maxLength*units)return null;
     if(advance({...p,chunk}))return kept;
    }
-  }throw Error('カーブの延長範囲内に壁が見つかりません。自動調整を解除してください。');
+  }return null;
  }
- const a=startAuto?follow(true):full.points.slice(0,anchor+1).reverse();
- const b=endAuto?follow(false):full.points.slice(anchor);
+ const unchangedEnds=[];
+ function originalHalf(isStart){
+  const endpoint=isStart?base.points[0]:base.points.at(-1);let best={d:Infinity,s:0};
+  for(let i=1;i<full.points.length;i++){
+   const a=full.points[i-1],b=full.points[i],dx=b.x-a.x,dy=b.y-a.y,f=Math.max(0,Math.min(1,((endpoint.x-a.x)*dx+(endpoint.y-a.y)*dy)/(dx*dx+dy*dy||1))),d=distance(endpoint,mix(a,b,f));
+   if(d<best.d)best={d,s:a.s+(b.s-a.s)*f};
+  }
+  return isStart?[full.points[anchor],...full.points.filter(p=>p.s<full.points[anchor].s&&p.s>best.s).reverse(),endpoint]:[full.points[anchor],...full.points.filter(p=>p.s>full.points[anchor].s&&p.s<best.s),endpoint];
+ }
+ function endpointHalf(isStart,enabled){
+  if(!enabled)return isStart?full.points.slice(0,anchor+1).reverse():full.points.slice(anchor);
+  const found=follow(isStart);if(found)return found;
+  unchangedEnds.push(isStart?'start':'end');return originalHalf(isStart);
+ }
+ const a=endpointHalf(true,startAuto),b=endpointHalf(false,endAuto);
+ if((!startAuto||unchangedEnds.includes('start'))&&(!endAuto||unchangedEnds.includes('end')))return {...base,autoWalls,unchangedEnds};
  const points=[...a.reverse(),...b.slice(1)];let len=0;
  for(let i=0;i<points.length;i++){if(i)len+=distance(points[i-1],points[i]);points[i]={...points[i],s:len};}
  if(len<1e-7)throw Error('壁から3mmを確保できる区間がありません。');
- return {points,len,units,autoWalls};
+ return {points,len,units,autoWalls,unchangedEnds};
 }
