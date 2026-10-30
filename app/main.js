@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,tangent,evaluate} from './geometry.js?v=free-layout-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,tangent,evaluate} from './geometry.js?v=closed-regions-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -137,7 +137,7 @@ function recalculate(){
    if(startAuto||endAuto){
     if(state.inside[idx]&&side!==state.inside[idx]*(start>end?-1:1))throw Error('壁の自動調整は内側への配置で使ってください。');
     const walls=state.paths.flatMap((p,i)=>{
-     if(i===idx||state.pathSources[i]!==state.pathSources[idx])return [];const key=i+':'+units;
+     if(i===idx||!sameRegion(i,idx))return [];const key=i+':'+units;
      if(!state.cache.has(key))state.cache.set(key,prepare(p,units));return [{index:i,prepared:state.cache.get(key)}];
     });
     line=fitWalls(state.cache.get(key),start,end,offset*units,side,walls,{startAuto,endAuto,clearance:3,maxLength:2*Math.hypot(...state.sources[state.pathSources[idx]].box.slice(2))*state.sources[state.pathSources[idx]].scale/units});
@@ -153,7 +153,7 @@ function recalculate(){
     corners[endpoint]=offsetLine(state.cache.get(neighborKey),0,1,offset*units,resolveSide($('cornerSide'+endpoint+name).value,neighbor));
    }
    if(corners.start||corners.end)line=alignCorners(line,corners);
-   const allWalls=state.paths.flatMap((p,i)=>{if(i===idx||state.pathSources[i]!==state.pathSources[idx]||activeNames().some(n=>n!==name&&+$('path'+n).value===i))return [];const k=i+':'+units;if(!state.cache.has(k))state.cache.set(k,prepare(p,units));return [{index:i,prepared:state.cache.get(k)}];});
+   const allWalls=state.paths.flatMap((p,i)=>{if(i===idx||!sameRegion(i,idx)||activeNames().some(n=>n!==name&&+$('path'+n).value===i))return [];const k=i+':'+units;if(!state.cache.has(k))state.cache.set(k,prepare(p,units));return [{index:i,prepared:state.cache.get(k)}];});
    const insets={};
    for(const endpoint of ['start','end']){
     if($('corner'+endpoint+name).value!=='')continue;
@@ -248,6 +248,34 @@ function ensureSourceControls(){
  for(const box of $('extraSources').children){const i=+box.dataset.sourceSlot;box.hidden=!state.sources[i];if(state.sources[i])$('extraSourceName'+i).textContent=state.sources[i].name;}
 }
 function pathD(path){return 'M'+path.start.x+','+path.start.y+path.segments.map(c=>(c.length===2?'L':c.length===3?'Q':'C')+c.slice(1).map(p=>p.x+','+p.y).join(' ')).join(' ');}
+// Trace bounded faces of endpoint-connected curves; source SVG remains untouched.
+function enclosedRegions(paths,units){
+ const tol=.01*units,nodes=[],edges=[];
+ const vertex=p=>{let i=nodes.findIndex(n=>distance(n.p,p)<=tol);if(i<0){i=nodes.length;nodes.push({p,out:[]});}return i;};
+ const sameCurve=(a,b,reverse)=>{const bs=reverse?[...b.segments].reverse().map(c=>[...c].reverse()):b.segments;return a.segments.length===bs.length&&a.segments.every((c,i)=>c.length===bs[i].length&&c.every((p,j)=>distance(p,bs[i][j])<=tol));};
+ paths.forEach((path,index)=>{const a=vertex(path.start),b=vertex(path.segments.at(-1).at(-1));if(edges.some(e=>(e.a===a&&e.b===b&&sameCurve(path,e.path,false))||(e.a===b&&e.b===a&&sameCurve(path,e.path,true))))return;
+ const e={a,b,path,index,id:edges.length};edges.push(e);for(const reverse of [false,true]){const c=reverse?path.segments.at(-1):path.segments[0],t=tangent(c,reverse?1:0),v=reverse?-1:1;const h={edge:e,reverse,from:reverse?b:a,to:reverse?a:b,angle:Math.atan2(v*t.y,v*t.x)};nodes[h.from].out.push(h);}
+ });
+ if(!nodes.some(n=>n.out.length>2))return null;
+ nodes.forEach(n=>n.out.sort((a,b)=>a.angle-b.angle));const visited=new Set(),faces=[];
+ for(const n of nodes)for(const start of n.out){const key=h=>h.edge.id+':'+h.reverse;if(visited.has(key(start)))continue;const ring=[];let h=start;
+ for(let step=0;step<=edges.length*2;step++){if(visited.has(key(h)))break;visited.add(key(h));ring.push(h);const out=nodes[h.to].out,j=out.findIndex(o=>o.edge===h.edge&&o.reverse!==h.reverse);h=out[(j+out.length-1)%out.length];if(h===start)break;}
+ if(h!==start)continue;const points=ring.flatMap(h=>{let cs=h.reverse?[...h.edge.path.segments].reverse().map(c=>[...c].reverse()):h.edge.path.segments;return cs.flatMap(c=>Array.from({length:c.length===2?1:24},(_,i)=>evaluate(c,i/(c.length===2?1:24))));});
+ let area=0;for(let i=0;i<points.length;i++){const a=points[i],b=points[(i+1)%points.length];area+=a.x*b.y-b.x*a.y;}
+ if(area<=tol*tol)continue;const counts=new Map();ring.forEach(h=>counts.set(h.edge.id,(counts.get(h.edge.id)||0)+1));const boundary=ring.filter(h=>counts.get(h.edge.id)===1);if(boundary.length)faces.push({ring:boundary,points,area});
+ }
+ const usage=new Map();faces.forEach(f=>f.ring.forEach(h=>usage.set(h.edge.id,(usage.get(h.edge.id)||0)+1)));
+ for(let i=faces.length-1;i>=0;i--){const f=faces[i];let perimeter=0;for(let j=0;j<f.points.length;j++)perimeter+=distance(f.points[j],f.points[(j+1)%f.points.length]);if(f.ring.every(h=>usage.get(h.edge.id)>1)&&f.area/(2*perimeter)<.05*units)faces.splice(i,1);}
+ if(faces.length<2)return null;
+ const contains=(f,p)=>{let v=false;for(let i=0;i<f.points.length;i++){const a=f.points[i],b=f.points[(i+1)%f.points.length];if((a.y>p.y)!==(b.y>p.y)&&p.x<(b.x-a.x)*(p.y-a.y)/(b.y-a.y)+a.x)v=!v;}return v;};
+ // Nested closed loops remain holes of the containing part.
+ const outer=faces.filter(f=>!faces.some(q=>q!==f&&q.area>f.area+tol*tol&&f.points.every(p=>contains(q,p))));
+ const resultPaths=[],parts=[],inside=[];const used=new Set();
+ outer.forEach(f=>{const indices=[];for(const h of f.ring){indices.push(resultPaths.length);resultPaths.push(h.edge.path);inside.push(h.reverse?-1:1);used.add(h.edge.id);}parts.push({indices,face:f});});
+ edges.forEach(e=>{if(used.has(e.id))return;const p=evaluate(e.path.segments[0],.5);const owner=parts.filter(p=>p.face&&contains(p.face,evaluate(e.path.segments[0],.5))).sort((a,b)=>a.face.area-b.face.area)[0];if(owner){owner.indices.push(resultPaths.length);resultPaths.push(e.path);inside.push(null);}else{parts.push({indices:[resultPaths.length],face:null});resultPaths.push(e.path);inside.push(null);}});
+ for(const part of parts){const ps=part.indices.flatMap(i=>resultPaths[i].segments.flat()),xs=ps.map(p=>p.x),ys=ps.map(p=>p.y);part.box=[Math.min(...xs),Math.min(...ys),Math.max(...xs)-Math.min(...xs),Math.max(...ys)-Math.min(...ys)];delete part.face;}
+ if(resultPaths.length>1000)throw Error('領域分割後の辺が1000本を超えます。');return {paths:resultPaths,parts,inside};
+}
 function detectParts(paths,units){
  const parent=paths.map((_,i)=>i),root=i=>parent[i]===i?i:parent[i]=root(parent[i]),tol=.001*units,cells=new Map();
  paths.forEach((path,i)=>{for(const p of [path.start,path.segments.at(-1).at(-1)]){
@@ -268,6 +296,7 @@ function detectParts(paths,units){
  const result=new Map();parts.forEach((p,i)=>{let owner=i;while(owners[owner]!==owner)owner=owners[owner];if(!result.has(owner))result.set(owner,{indices:[],box:parts[owner].box});result.get(owner).indices.push(...p.indices);});
  return [...result.values()].map(p=>({...p,indices:p.indices.sort((a,b)=>a-b)}));
 }
+function sameRegion(a,b){if(state.pathSources[a]!==state.pathSources[b])return false;const si=state.pathSources[a],s=state.sources[si];if(!s?.regionSplit)return true;const first=state.pathSources.indexOf(si);return s.parts.some(p=>p.indices.includes(a-first)&&p.indices.includes(b-first));}
 function partShift(source,pi){const o=state.partOffsets[source.id+':'+pi]||{x:0,y:0};return {x:o.x*source.scale,y:o.y*source.scale};}
 function pathShift(i){const si=state.pathSources[i],source=state.sources[si];if(!source)return {x:0,y:0};const local=i-state.pathSources.indexOf(si);return partShift(source,source.parts.findIndex(p=>p.indices.includes(local)));}
 function lineShift(name){return pathShift(+$('path'+name).value);}
@@ -322,9 +351,9 @@ function suggestedWidth(source){
  const ratio=source.box[2]/source.box[3];if(Math.abs(ratio-297/210)<.005)return 297;if(Math.abs(ratio-210/297)<.005)return 210;return null;
 }
 function readSource(text,name){
- const doc=new DOMParser().parseFromString(text,'image/svg+xml'),{box,paths}=validateDocument(doc);
- const parts=detectParts(paths,box[2]/210);let inside=Array(paths.length).fill(null),insideError='内側を判定できません。右／左を手動で選んでください。';
- for(const part of parts){
+ const doc=new DOMParser().parseFromString(text,'image/svg+xml'),parsed=validateDocument(doc),box=parsed.box,regions=enclosedRegions(parsed.paths,box[2]/210),paths=regions?.paths||parsed.paths;
+ const parts=regions?.parts||detectParts(paths,box[2]/210);let inside=regions?.inside||Array(paths.length).fill(null),insideError='内側を判定できません。右／左を手動で選んでください。';
+ for(const part of regions?[]:parts){
   let indices=[...part.indices],changed=true;
   while(changed){changed=false;const counts=new Map(),key=p=>Math.round(p.x/(box[2]/210*.000001))+','+Math.round(p.y/(box[2]/210*.000001));
    for(const i of indices)for(const point of [paths[i].start,paths[i].segments.at(-1).at(-1)])counts.set(key(point),(counts.get(key(point))||0)+1);
@@ -332,7 +361,7 @@ function readSource(text,name){
   }
   try{const sides=interiorSides(indices.map(i=>paths[i]),box[2]/210);indices.forEach((i,k)=>inside[i]=sides[k]);}catch(e){insideError=e.message;}
  }
- return {doc,text,name,box,paths,inside,insideError,parts,id:++sourceSequence};
+ return {doc,text,name,box,paths,inside,insideError,parts,regionSplit:!!regions,id:++sourceSequence};
 }
 function rebuildScene(force=false){
  if(!state.sources.length)return;
