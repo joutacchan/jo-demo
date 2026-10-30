@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>針穴配置ツール</title>
-  <link rel="stylesheet" href="app/style.css?v=a4-print-1">
+  <link rel="stylesheet" href="app/style.css?v=a4-print-2">
 </head>
 <body>
 <header>
@@ -43,7 +43,7 @@
         <div id="thirdSource" hidden><p id="thirdSourceName" class="filename"></p><label class="dimension">型紙3の横幅 <span>mm</span><input id="width3" type="number" value="210" min="1" max="10000" step="0.1"></label><button id="removeThird" class="quiet" disabled>型紙3を外す</button></div>
       </div></details>
       <div id="extraSources"></div></details><div class="source-footer"><button id="sample" class="quiet">サンプルを使う</button><span class="hint">SVGは端末内で処理</span></div>
-      <details class="help"><summary>横幅・実寸について</summary><p class="hint">横幅はSVG全体の実寸です。210mmは仮の値なので、各型紙の寸法を確認してください。印刷は100%。補正横幅＝現在の横幅×希望寸法÷測った寸法。</p></details>
+      <details class="help"><summary>横幅・実寸について</summary><p class="hint">横幅はSVG全体の実寸です。A4比率のファイルは縦210mm／横297mmを初期値にします。210mmは仮の値なので、各型紙の寸法を確認してください。印刷は100%。補正横幅＝現在の横幅×希望寸法÷測った寸法。</p></details>
     </section>
     <section class="card" id="seamSettings">
       <h2><span class="step">02</span> 縫い合わせる辺</h2>
@@ -67,6 +67,6 @@
   </aside>
 </main>
 <noscript>JavaScriptが動作していません。SafariでWebページを開いてください。</noscript>
-<script type="module" src="app/main.js?v=a4-print-1"></script>
+<script type="module" src="app/main.js?v=a4-print-2"></script>
 </body>
 </html>

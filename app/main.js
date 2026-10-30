@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,tangent,evaluate} from './geometry.js?v=a4-print-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,tangent,evaluate} from './geometry.js?v=a4-print-2';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -273,12 +273,17 @@ function renderLibrary(){
 async function importBatch(files){
  if(!files.length)return;const replaceSample=state.sources.length===1&&state.sources[0].name==='原本サンプル'&&!state.fixed.length;
  if((replaceSample?0:state.sources.length)+files.length>32)throw Error('SVGは32ファイルまで追加できます。');
- const loaded=[];for(const file of files){if(file.size>2e6)throw Error(`${file.name}：1枚2MB以内にしてください。`);const s=readSource(await file.text(),file.name);const physical=(s.doc.documentElement.getAttribute('width')||'').match(/^\s*([\d.]+)\s*(mm|cm|in)\s*$/i);s.width=physical?+physical[1]*({mm:1,cm:10,in:25.4}[physical[2].toLowerCase()]):210;if(s.width<1||s.width>10000||!Number.isFinite(s.width))s.width=210;loaded.push(s);}
+ const loaded=[];for(const file of files){if(file.size>2e6)throw Error(`${file.name}：1枚2MB以内にしてください。`);const s=readSource(await file.text(),file.name);s.width=suggestedWidth(s)||210;if(s.width<1||s.width>10000||!Number.isFinite(s.width))s.width=210;loaded.push(s);}
  const old=[...state.sources],owners=[...state.pathSources],values=savedLineValues();if(replaceSample){state.sources=[];state.completed=[];}const start=state.sources.length;state.sources.push(...loaded);ensureSourceControls();state.sources.forEach((s,i)=>{if(i>=start)widthControl(i).value=s.width;});
  rebuildScene(true);populateChoices();if(replaceSample){resetLine('A',0);resetLine('B',Math.min(1,state.paths.length-1));resetLine('C',Math.min(2,state.paths.length-1));}else remapSelections(values,owners,old);
  $('sourceFiles').open=false;focusPart(state.sources[start],state.sources[start].parts[0]);calculate();message(`${files.length}個のSVGを追加しました。パーツ一覧の図を押して拡大・編集できます。`);
 }
 $('batchFiles').onchange=async e=>{try{await importBatch([...e.target.files]);}catch(err){message(err.message);}finally{e.target.value='';}};
+function suggestedWidth(source){
+ const physical=(source.doc.documentElement.getAttribute('width')||'').match(/^\s*([\d.]+)\s*(mm|cm|in)\s*$/i);
+ if(physical)return +physical[1]*({mm:1,cm:10,in:25.4}[physical[2].toLowerCase()]);
+ const ratio=source.box[2]/source.box[3];if(Math.abs(ratio-297/210)<.005)return 297;if(Math.abs(ratio-210/297)<.005)return 210;return null;
+}
 function readSource(text,name){
  const doc=new DOMParser().parseFromString(text,'image/svg+xml'),{box,paths}=validateDocument(doc);
  const parts=detectParts(paths,box[2]/210);let inside=Array(paths.length).fill(null),insideError='内側を判定できません。右／左を手動で選んでください。';
@@ -356,8 +361,7 @@ export function loadSVG(text,name='SVG',slot=0){
  if(state.sources[slot]&&state.fixed.some(g=>g.rows.some(r=>r.sourceId===state.sources[slot].id)))throw Error('この型紙には固定済みの針穴があります。固定を外してから型紙を交換してください。');
  const source=readSource(text,name),oldSources=[...state.sources],oldOwners=[...state.pathSources],values=savedLineValues();
  if(state.sources[slot])state.completed=state.completed.filter(k=>!k.startsWith(state.sources[slot].id+':'));state.sources[slot]=source;ensureSourceControls();
- const physical=(source.doc.documentElement.getAttribute('width')||'').match(/^\s*([\d.]+)\s*(mm|cm|in)\s*$/i);
- if(physical){const w=+physical[1]*({mm:1,cm:10,in:25.4}[physical[2].toLowerCase()]);if(w>=1&&w<=10000)widthControl(slot).value=w;}
+ const physicalWidth=suggestedWidth(source);if(physicalWidth>=1&&physicalWidth<=10000)widthControl(slot).value=physicalWidth;
  for(const id of ['width','width2','width3'])if(!Number.isFinite($(id).valueAsNumber)||$(id).valueAsNumber<1||$(id).valueAsNumber>10000)$(id).value=210;
  ensureSourceControls();rebuildScene(true);populateChoices();remapSelections(values,oldOwners,oldSources,slot);
  if(slot===0&&!oldSources[1]){resetLine('A',Math.max(0,Math.min(5,source.paths.length-2)));resetLine('B',Math.min(6,source.paths.length-1));}
