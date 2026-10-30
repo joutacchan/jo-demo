@@ -48,7 +48,7 @@ for(const id of ['width','width2','width3','seamMode','split','diameter','count'
 // History stores editor values and immutable source text, never generated hole SVG.
 const history=[],future=[];let previous=null,restoring=false,editGroup=null,groupRecorded=false;
 const fields=()=>[...document.querySelectorAll('aside input[id],aside select[id]')].filter(e=>e.type!=='file'&&e.type!=='range'&&e.id!=='exportSource');
-function snapshot(){return {source:state.sourceText,name:state.sourceLabel,sources:state.sources.map(s=>({text:s.text,name:s.name,width:s.width,id:s.id})),fixed:structuredClone(state.fixed),completed:[...state.completed],committedSignature:state.committedSignature,view:[...state.view],values:fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value])};}
+function snapshot(){return {source:state.sourceText,name:state.sourceLabel,sources:state.sources.map(s=>({text:s.text,name:s.name,width:s.width,id:s.id})),fixed:[...state.fixed],completed:[...state.completed],committedSignature:state.committedSignature,view:[...state.view],values:fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value])};}
 function same(a,b){return JSON.stringify(a)===JSON.stringify(b);}
 function checkpoint(){
  if(restoring||!state.doc)return;
@@ -79,11 +79,11 @@ function restoreHistory(from,to,text){
  restoring=true;
  try{
   if(!same(saved.sources.map(s=>[s.text,s.name,s.id]),state.sources.map(s=>[s.text,s.name,s.id]))){
-   state.fixed=structuredClone(saved.fixed||[]);state.completed=[...(saved.completed||[])];state.committedSignature=saved.committedSignature;
+   state.fixed=[...(saved.fixed||[])];state.completed=[...(saved.completed||[])];state.committedSignature=saved.committedSignature;
   for(const [id,value] of saved.values)if(/^width\d*$/.test(id)&&$(id))$(id).value=value;
    state.sources=saved.sources.map(s=>({...readSource(s.text,s.name),width:s.width,id:s.id}));ensureSourceControls();rebuildScene(true);populateChoices();
   }
-  state.fixed=structuredClone(saved.fixed||[]);state.completed=[...(saved.completed||[])];state.committedSignature=saved.committedSignature;
+  state.fixed=[...(saved.fixed||[])];state.completed=[...(saved.completed||[])];state.committedSignature=saved.committedSignature;
   for(const [id,value] of saved.values){const e=$(id);if(e.type==='checkbox')e.checked=value;else e.value=value;}
   for(const name of lineNames)syncRanges(name);
   state.view=[...saved.view];applyView();recalculate();
