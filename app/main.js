@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,tangent,evaluate} from './geometry.js?v=closed-regions-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,tangent,evaluate} from './geometry.js?v=whole-edge-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -271,7 +271,14 @@ function enclosedRegions(paths,units){
  // Nested closed loops remain holes of the containing part.
  const outer=faces.filter(f=>!faces.some(q=>q!==f&&q.area>f.area+tol*tol&&f.points.every(p=>contains(q,p))));
  const resultPaths=[],parts=[],inside=[];const used=new Set();
- outer.forEach(f=>{const indices=[];for(const h of f.ring){indices.push(resultPaths.length);resultPaths.push(h.edge.path);inside.push(h.reverse?-1:1);used.add(h.edge.id);}parts.push({indices,face:f});});
+ outer.forEach(f=>{
+  const pieces=f.ring.map(h=>{used.add(h.edge.id);return {segments:h.reverse?[...h.edge.path.segments].reverse().map(c=>[...c].reverse()):h.edge.path.segments};});
+  const joins=(a,b)=>{const last=a.segments.at(-1),first=b.segments[0],u=tangent(last,1),v=tangent(first,0);return distance(last.at(-1),first[0])<=tol&&u.x*v.x+u.y*v.y>=Math.cos(Math.PI/12)-1e-9;};
+  const firstBreak=pieces.findIndex((p,i)=>!joins(p,pieces[(i+1)%pieces.length]));
+  const ordered=firstBreak<0?pieces:[...pieces.slice(firstBreak+1),...pieces.slice(0,firstBreak+1)],runs=[];
+  for(const piece of ordered){if(runs.length&&joins(runs.at(-1),piece))runs.at(-1).segments.push(...piece.segments);else runs.push({segments:[...piece.segments]});}
+  const indices=[];for(const run of runs){indices.push(resultPaths.length);resultPaths.push({start:run.segments[0][0],segments:run.segments,closed:firstBreak<0});inside.push(1);}parts.push({indices,face:f});
+ });
  edges.forEach(e=>{if(used.has(e.id))return;const p=evaluate(e.path.segments[0],.5);const owner=parts.filter(p=>p.face&&contains(p.face,evaluate(e.path.segments[0],.5))).sort((a,b)=>a.face.area-b.face.area)[0];if(owner){owner.indices.push(resultPaths.length);resultPaths.push(e.path);inside.push(null);}else{parts.push({indices:[resultPaths.length],face:null});resultPaths.push(e.path);inside.push(null);}});
  for(const part of parts){const ps=part.indices.flatMap(i=>resultPaths[i].segments.flat()),xs=ps.map(p=>p.x),ys=ps.map(p=>p.y);part.box=[Math.min(...xs),Math.min(...ys),Math.max(...xs)-Math.min(...xs),Math.max(...ys)-Math.min(...ys)];delete part.face;}
  if(resultPaths.length>1000)throw Error('領域分割後の辺が1000本を超えます。');return {paths:resultPaths,parts,inside};
