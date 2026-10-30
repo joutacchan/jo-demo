@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,tangent,evaluate} from './geometry.js?v=a4-print-2';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,tangent,evaluate} from './geometry.js?v=same-line-sides-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -8,7 +8,7 @@ const node=(name,attrs,parent)=>{const e=document.createElementNS(NS,name);for(c
 const message=text=>$('message').textContent=text;
 for(const name of lineNames){
  const div=document.createElement('div');div.className='line';div.dataset.name=name;div.hidden=name==='C';
- div.innerHTML=`<h3>線${name}</h3><label>カット線<select id="path${name}"></select></label><div class="grid"><label>始点 %<input id="start${name}" type="number" min="0" max="100" step="0.1" value="0"></label><label>終点 %<input id="end${name}" type="number" min="0" max="100" step="0.1" value="100"></label></div><label>始点を調整<input id="rangeStart${name}" type="range" min="0" max="100" step="0.1" value="0"></label><label>終点を調整<input id="rangeEnd${name}" type="range" min="0" max="100" step="0.1" value="100"></label><div class="grid"><label>穴を置く側<select id="side${name}"><option value="auto">内側（自動）</option><option value="1">右（手動）</option><option value="-1">左（手動）</option></select></label><label>オフセット mm<input id="offset${name}" type="number" min="0" max="100" step="0.1" value="3" disabled></label></div><label><input id="snap${name}" type="checkbox" checked>3mmに固定</label><button id="reverse${name}">始点と終点を入れ替え</button>`;
+ div.innerHTML=`<h3>線${name}</h3><label>カット線<select id="path${name}"></select></label><div class="grid"><label>始点 %<input id="start${name}" type="number" min="0" max="100" step="0.1" value="0"></label><label>終点 %<input id="end${name}" type="number" min="0" max="100" step="0.1" value="100"></label></div><label>始点を調整<input id="rangeStart${name}" type="range" min="0" max="100" step="0.1" value="0"></label><label>終点を調整<input id="rangeEnd${name}" type="range" min="0" max="100" step="0.1" value="100"></label><div class="grid"><label>穴を置く側<select id="side${name}"><option value="auto">内側（自動）</option><option value="outside">外側（自動）</option><option value="1">右（手動）</option><option value="-1">左（手動）</option></select></label><label>オフセット mm<input id="offset${name}" type="number" min="0" max="100" step="0.1" value="3" disabled></label></div><label><input id="snap${name}" type="checkbox" checked>3mmに固定</label><button id="reverse${name}">始点と終点を入れ替え</button>`;
  for(const end of ['start','end']){
   const controls=document.createElement('div');controls.className='grid';
   controls.innerHTML=`<label>${end==='start'?'始点':'終点'}の角を揃える<select id="corner${end}${name}"><option value="">揃えない</option></select></label><label>隣の辺のオフセット方向<select id="cornerSide${end}${name}"><option value="auto">内側（自動）</option><option value="1">隣の辺の右（手動）</option><option value="-1">隣の辺の左</option></select></label>`;
@@ -93,9 +93,9 @@ function restoreHistory(from,to,text){
 $('undo').onclick=()=>restoreHistory(history,future,'1つ前の状態に戻しました。');
 $('redo').onclick=()=>restoreHistory(future,history,'1つ先の状態に進みました。');
 function resolveSide(value,index,reverse=false){
- if(value!=='auto')return +value;
+ if(value!=='auto'&&value!=='outside')return +value;
  if(!state.inside[index])throw Error(state.sources[state.pathSources[index]].insideError);
- return state.inside[index]*(reverse?-1:1);
+ return state.inside[index]*(reverse?-1:1)*(value==='outside'?-1:1);
 }
 function recalculate(){
  const joinedMode=$('seamMode').value==='joined',singleMode=$('seamMode').value==='single';
@@ -122,7 +122,7 @@ function recalculate(){
   const units=state.sources[0].box[2]/width,diameter=number('diameter',.1,10),minPitch=number('pitch',10,1000);
   const auto=$('countMode').value==='auto';
   const count=auto?13:number('count',2,1000);$('count').disabled=auto;
-  if(new Set(activeNames().map(n=>$('path'+n).value)).size!==activeNames().length)throw Error('A・B・Cには異なるカット線を選んでください。');
+  if(joinedMode&&new Set(activeNames().map(n=>$('path'+n).value)).size!==activeNames().length)throw Error('A・B・Cには異なるカット線を選んでください。');
   const lines=[],cornerErrors=[];
   for(const name of activeNames()){
    const idx=+$('path'+name).value,path=state.paths[idx];

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>針穴配置ツール</title>
-  <link rel="stylesheet" href="app/style.css?v=a4-print-2">
+  <link rel="stylesheet" href="app/style.css?v=same-line-sides-1">
 </head>
 <body>
 <header>
@@ -47,7 +47,7 @@
     </section>
     <section class="card" id="seamSettings">
       <h2><span class="step">02</span> 縫い合わせる辺</h2>
-      <p class="intro">AとBに、同じ数の針穴を並べます。</p>
+      <p class="intro">AとBに、同じ数の針穴を並べます。同じ線を両方に選び、各辺の詳細で「内側」「外側」を指定することもできます。</p>
       <label>縫い合わせ方<select id="seamMode"><option value="single">1辺だけに配置</option><option value="pair" selected>1つの辺 ↔ 1つの辺</option><option value="joined">1つの辺 ↔ 2つの辺（前半・後半）</option></select></label>
       <div id="joinedSettings" hidden><label>Aの分割位置 %<input id="split" type="number" min="0.1" max="99.9" step="0.1" value="50"></label><p class="hint">A前半をBへ、A後半をCへ。境目の穴は重ねず、A上で最小ピッチ以上を空けます。始終点%は各辺の詳細で調整できます。</p></div>
       <div id="lineFields"></div>
@@ -67,6 +67,6 @@
   </aside>
 </main>
 <noscript>JavaScriptが動作していません。SafariでWebページを開いてください。</noscript>
-<script type="module" src="app/main.js?v=a4-print-2"></script>
+<script type="module" src="app/main.js?v=same-line-sides-1"></script>
 </body>
 </html>
