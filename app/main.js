@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined} from './geometry.js?v=joined-inset-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined} from './geometry.js?v=joined-inset-2';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:['A','B'];
@@ -179,7 +179,7 @@ function recalculate(){
     node('circle',{cx:0,cy:0,r:5,fill:colors[name]},marker);
     node('text',{x:name==='A'?-8:8,y:-8,'text-anchor':name==='A'?'end':'start',style:'font-size:14px;stroke-width:3px'},marker).textContent=label;
    }
-   const div=document.createElement('div');div.className='result';div.textContent=`${name}：${row.holes.length}穴 ／ 縫い線 ${(lines[j].len/units).toFixed(3)}mm ／ 弧長ピッチ ${(row.pitch??Math.min(...result.pairs.map(p=>p.rows[0].pitch))).toFixed(3)}mm ／ 中心の直線距離 ${(row.minChord??Math.min(...result.pairs.map(p=>p.rows[0].minChord))).toFixed(3)}〜${(row.maxChord??Math.max(...result.pairs.map(p=>p.rows[0].maxChord))).toFixed(3)}mm${Object.keys(lines[j].autoWalls||{}).map(end=>` ／ ${end==='start'?'始点':'終点'}：壁から${lines[j].insets?.[end]??3}mm（自動）`).join('')}${(lines[j].unchangedEnds||[]).map(end=>` ／ ${end==='start'?'始点':'終点'}：壁未検出・元の位置`).join('')}`;$('stats').append(div);
+   const div=document.createElement('div');div.className='result';div.textContent=`${name}：${row.holes.length}穴 ／ 縫い線 ${(lines[j].len/units).toFixed(3)}mm ／ 弧長ピッチ ${row.pitch.toFixed(3)}${row.maxPitch?'〜'+row.maxPitch.toFixed(3):''}mm ／ 中心の直線距離 ${row.minChord.toFixed(3)}〜${row.maxChord.toFixed(3)}mm${Object.keys(lines[j].autoWalls||{}).map(end=>` ／ ${end==='start'?'始点':'終点'}：壁から${lines[j].insets?.[end]??3}mm（自動）`).join('')}${(lines[j].unchangedEnds||[]).map(end=>` ／ ${end==='start'?'始点':'終点'}：壁未検出・元の位置`).join('')}`;$('stats').append(div);
   });
   if(joined){const info=document.createElement('p');info.className='hint';info.textContent=`A前半 ↔ B：${result.pairs[0].count}穴 ／ A後半 ↔ C：${result.pairs[1].count}穴。境目は縫い線に沿って${(minPitch+.0001).toFixed(2)}mm空けています。`;$('stats').append(info);const m=node('g',{'data-x':result.boundary.x,'data-y':result.boundary.y},$('markers'));node('text',{x:8,y:20,style:'font-size:14px;stroke-width:3px'},m).textContent='Aの分割';}
   updateMarkerScale();

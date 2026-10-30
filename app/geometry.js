@@ -307,8 +307,10 @@ export function placeJoined(a,b,c,{split=.5,mode='auto',count=13,minPitch=10}={}
  const boundary=a.len*split,gap=(minPitch+.0001)*a.units;
  const first=trimLine(a,0,a.len-boundary+gap/2),second=trimLine(a,boundary+gap/2,0);
  const pairs=[place(first,b,{mode,count,minPitch}),place(second,c,{mode,count,minPitch})];
+ const holes=[...pairs[0].rows[0].holes,...pairs[1].rows[0].holes],chords=holes.slice(1).map((p,i)=>distance(p,holes[i])/a.units);
+ const pitches=[pairs[0].rows[0].pitch,pairs[1].rows[0].pitch,gap/a.units];
  return {pairs,parts:[first,second],boundary:along(a,boundary),gap:distance(along(a,boundary-gap/2),along(a,boundary+gap/2))/a.units,
-  rows:[{holes:[...pairs[0].rows[0].holes,...pairs[1].rows[0].holes]},pairs[0].rows[1],pairs[1].rows[1]],valid:pairs.every(p=>p.valid),warning:pairs.map(p=>p.warning).filter(Boolean).join(' ')};
+  rows:[{holes,pitch:Math.min(...pitches),maxPitch:Math.max(...pitches),minChord:Math.min(...chords),maxChord:Math.max(...chords)},pairs[0].rows[1],pairs[1].rows[1]],valid:pairs.every(p=>p.valid),warning:pairs.map(p=>p.warning).filter(Boolean).join(' ')};
 }
 
 export function distanceToWalls(p,walls){
