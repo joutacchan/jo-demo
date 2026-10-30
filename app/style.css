@@ -25,3 +25,5 @@ aside{height:100%;min-height:0;overflow-y:auto;overscroll-behavior-y:contain;-we
 .view-tools{position:absolute;right:4px;top:4px;z-index:2;background:#fffffff0;border-radius:6px;display:flex;gap:6px;align-items:center;flex:none}.view-tools button{min-height:32px;padding:3px 8px;margin:0}.view-tools span{font-size:11px}.part-reorder{min-height:36px;padding:4px 8px}
 
 body.expanded-view .preview{position:fixed;inset:0;z-index:20;margin:0;border-radius:0;padding:max(8px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left));display:flex;flex-direction:column;background:#fff}body.expanded-view aside{visibility:hidden}body.expanded-view .preview .heading{display:none}#expandView{position:absolute;right:4px;bottom:4px;z-index:2;min-height:40px;font-size:13px;margin:0;padding:4px 10px;background:#fff}
+
+.section-row{display:flex;gap:4px;align-items:center;margin:5px 0}.section-row button{padding:5px;min-height:40px;margin:0}.section-row button:first-child{flex:1;font-size:12px}.section-row button[aria-pressed=true]{background:#dcebdc;border:2px solid #3b7759}

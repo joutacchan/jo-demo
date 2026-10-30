@@ -320,3 +320,19 @@ export function distanceToWalls(p,walls){
   nearest=Math.min(nearest,distance(p,mix(a,b,f)));
  }return nearest;
 }
+
+// Ordered, disconnected sewing sections. Gaps are not sewing intervals.
+export function placeSequences(a,b,{mode='auto',count,minPitch=10}={}){
+ if(!Number.isFinite(minPitch)||minPitch<10)throw Error('最小ピッチは10mm以上にしてください。');
+ if(!a.length||!b.length)throw Error('AとBにそれぞれ区間を追加してください。');
+ const capacities=lines=>lines.map(l=>Math.floor(l.len/l.units/(minPitch+.0001))+1);
+ const ca=capacities(a),cb=capacities(b);
+ if([...ca,...cb].some(n=>n<2))throw Error('短すぎる区間があります。各区間に2穴以上・最小ピッチを確保してください。');
+ const cap=Math.min(ca.reduce((s,n)=>s+n,0),cb.reduce((s,n)=>s+n,0),1000),minimum=2*Math.max(a.length,b.length);
+ if(cap<minimum)throw Error('区間数に対して縫える長さが足りません。短い区間を広げるか区間数を減らしてください。');
+ if(mode==='auto')count=cap;
+ if(!Number.isInteger(count)||count<minimum||count>cap)throw Error(`総穴数は片側${minimum}〜${cap}穴の範囲で指定してください。区間数や長さも見直せます。`);
+ const distribute=(lines,caps)=>{const counts=lines.map(()=>2);for(let remaining=count-counts.length*2;remaining>0;remaining--){let best=-1,score=-Infinity;lines.forEach((l,i)=>{const next=l.len/l.units/counts[i];if(counts[i]<caps[i]&&next>score){best=i;score=next;}});if(best<0)throw Error('区間へ穴数を割り当てられません。');counts[best]++;}return counts.map((n,i)=>place(lines[i],lines[i],{mode:'fixed',count:n,minPitch}).rows[0]);};
+ const ar=distribute(a,ca),br=distribute(b,cb),rows=[...ar,...br];
+ return {count,rows,sideRows:{A:ar,B:br},valid:rows.every(r=>r.pitch>=minPitch),warning:rows.some(r=>r.minChord<minPitch)?'弧長条件は満たしますが、区間内の穴中心の直線距離が下限未満です。':''};
+}

@@ -1,9 +1,9 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,tangent,evaluate} from './geometry.js?v=whole-edge-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeSequences,tangent,evaluate} from './geometry.js?v=ordered-sections-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
 let sourceSequence=0;
-const state={rotation:0,partOffsets:{},partOrder:[],fixed:[],committedSignature:null,completed:[],sources:[],pathSources:[],doc:null,paths:[],view:[0,0,2480,3505],base:[0,0,2480,3505],latest:null,cache:new Map(),calculations:0};
+const state={sections:null,sectionSelected:{A:0,B:0},rotation:0,partOffsets:{},partOrder:[],fixed:[],committedSignature:null,completed:[],sources:[],pathSources:[],doc:null,paths:[],view:[0,0,2480,3505],base:[0,0,2480,3505],latest:null,cache:new Map(),calculations:0};
 const node=(name,attrs,parent)=>{const e=document.createElementNS(NS,name);for(const [k,v] of Object.entries(attrs))e.setAttribute(k,v);parent?.append(e);return e;};
 const message=text=>$('message').textContent=text;
 for(const name of lineNames){
@@ -41,14 +41,43 @@ for(const name of lineNames){
  $('reverse'+name).onclick=()=>{const a=$('start'+name),b=$('end'+name);[a.value,b.value]=[b.value,a.value];for(const end of ['start','end']){$('corner'+end+name).value='';$('insetMode'+end+name).value='offset';}syncRanges(name);calculate();message($('warning').textContent||'始点と終点を入れ替え、壁に接する端の控えを自動で設定しました。');};
  $('path'+name).onchange=()=>{for(const endpoint of ['start','end']){$('corner'+endpoint+name).value='';$('insetMode'+endpoint+name).value='offset';}$('start'+name).value=0;$('end'+name).value=100;syncRanges(name);calculate();};
 }
+const sectionFields=['path','side','start','end','snap','offset','cornerstart','cornerend','cornerSidestart','cornerSideend','insetModestart','insetModeend','insetstart','insetend'];
+function captureSection(name){const values=Object.fromEntries(sectionFields.map(k=>{const e=$(k+name);return [k,e.type==='checkbox'?e.checked:e.value];})),i=+values.path,si=state.pathSources[i];return {values,sourceId:state.sources[si]?.id,local:i-state.pathSources.indexOf(si)};}
+function sectionPath(section){const si=state.sources.findIndex(s=>s.id===section.sourceId);if(si<0||!state.sources[si].paths[section.local])throw Error('原本が変更された区間があります。その区間を削除して追加し直してください。');return state.pathSources.indexOf(si)+section.local;}
+function showSection(name,section){const path=sectionPath(section);for(const [key,value] of Object.entries(section.values)){const e=$(key+name);if(e.type==='checkbox')e.checked=value;else e.value=key==='path'?path:value;}syncRanges(name);}
+function persistSections(){if($('seamMode').value!=='sequence'||!state.sections||!state.sectionModeActive)return;for(const name of ['A','B']){const old=state.sections[name][state.sectionSelected[name]];if(old&&state.sources.some(s=>s.id===old.sourceId))state.sections[name][state.sectionSelected[name]]=captureSection(name);}}
+function renderSections(){const enabled=$('seamMode').value==='sequence',entering=enabled&&!state.sectionModeActive;const existing=!!state.sections;if(enabled&&!state.sections){state.sections={A:[captureSection('A')],B:[captureSection('B')]};state.sectionSelected={A:0,B:0};}if(entering&&existing)for(const name of ['A','B'])try{showSection(name,state.sections[name][state.sectionSelected[name]]);}catch(e){message(e.message);}state.sectionModeActive=enabled;for(const name of ['A','B']){const option=[...$('active').options].find(o=>o.value===name);if(option){option.value=name;option.textContent=enabled?name+(state.sectionSelected[name]+1):name;}}
+ for(const name of ['A','B']){const panel=$('sections'+name);panel.hidden=!enabled;if(!enabled)continue;const list=$('sectionList'+name);list.replaceChildren();state.sections[name].forEach((section,i)=>{const row=document.createElement('div');row.className='section-row';const edit=document.createElement('button');let caption='原本変更・再追加が必要';try{caption=pathLabel(sectionPath(section));}catch{}edit.textContent=`${name}${i+1} · ${caption}：${section.values.start}% → ${section.values.end}%${i===state.sectionSelected[name]?'（編集中）':''}`;edit.setAttribute('aria-pressed',String(i===state.sectionSelected[name]));edit.onclick=()=>{persistSections();state.sectionSelected[name]=i;$('active').value=name;if(lineNames.includes($('mode').value))$('mode').value=name;try{showSection(name,section);}catch(e){message(e.message);}calculate();};row.append(edit);
+ for(const [text,delta] of [['↑',-1],['↓',1],['削除',0]]){const b=document.createElement('button');b.textContent=text;b.setAttribute('aria-label',`${name}${i+1} ${text}`);b.disabled=delta?i+delta<0||i+delta>=state.sections[name].length:state.sections[name].length===1;b.onclick=()=>{persistSections();const sections=state.sections[name];if(delta)[sections[i],sections[i+delta]]=[sections[i+delta],sections[i]];else sections.splice(i,1);state.sectionSelected[name]=delta?i+delta:Math.min(i,sections.length-1);showSection(name,sections[state.sectionSelected[name]]);calculate();};row.append(b);}list.append(row);});
+ document.querySelector(`.line[data-name=${name}] h3`).textContent=`線${name} · ${name}${state.sectionSelected[name]+1}を編集中`;
+ }}
+for(const name of ['A','B']){const panel=document.createElement('div');panel.id='sections'+name;panel.hidden=true;const add=document.createElement('button');add.id='addSection'+name;add.textContent=`${name}の区間を追加`;add.onclick=()=>{persistSections();state.sections[name].push(captureSection(name));state.sectionSelected[name]=state.sections[name].length-1;$('active').value=name;if(lineNames.includes($('mode').value))$('mode').value=name;calculate();message(`${name}${state.sectionSelected[name]+1}を追加しました。同じ辺の離れた区間なら始点・終点を変更してください。`);};const list=document.createElement('div');list.id='sectionList'+name;panel.append(list,add);document.querySelector(`.line[data-name=${name}]`).append(panel);}
+function calculateSections(units,width,diameter,minPitch,count){
+ const saved={A:captureSection('A'),B:captureSection('B')},entries=[],groups={A:[],B:[]};
+ try{const excluded=['A','B'].flatMap(n=>state.sections[n].map(sectionPath));for(const name of ['A','B'])for(const [i,section] of state.sections[name].entries()){showSection(name,section);const path=sectionPath(section),line=buildLine(name,units,false,excluded);entries.push({name,label:name+(i+1),path,line,section});groups[name].push(line);}}
+ finally{for(const name of ['A','B'])showSection(name,saved[name]);}
+ for(const name of ['A','B']){const sections=state.sections[name];for(let i=0;i<sections.length;i++)for(let j=i+1;j<sections.length;j++){const a=sections[i],b=sections[j],av=a.values,bv=b.values,physical=v=>resolveSide(v.side,sectionPath(a),+v.start>+v.end)*(+v.start>+v.end?-1:1),offset=v=>v.snap?3:+v.offset;if(a.sourceId===b.sourceId&&a.local===b.local&&offset(av)===offset(bv)&&(offset(av)===0||physical(av)===physical(bv))&&Math.max(Math.min(+av.start,+av.end),Math.min(+bv.start,+bv.end))<=Math.min(Math.max(+av.start,+av.end),Math.max(+bv.start,+bv.end))+1e-7)throw Error(`${name}${i+1}と${name}${j+1}が重なるか同じ端点を使っています。区間の間を空けてください。`);}}
+ const result=placeSequences(groups.A,groups.B,{mode:$('countMode').value,count,minPitch});if($('countMode').value==='auto')$('count').value=result.count;
+ const numbers={A:0,B:0};result.rows.forEach((row,j)=>{const entry=entries[j],{name,label,path,line}=entry,start=numbers[name]+1;numbers[name]+=row.holes.length;const end=numbers[name];entry.firstNumber=start;entry.lastNumber=end;
+ node('path',{d:line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '),stroke:colors[name],'data-line':name,'data-path':path,'data-section':label},$('guides'));
+ row.holes.forEach((p,i)=>node('circle',{cx:p.x,cy:p.y,r:diameter*units/2,'data-hole':`${name}_${start+i}`,'data-path':path,'data-section':label},$('holes')));
+ for(const [p,endpoint,index] of [[row.holes[0],'始点',start],[row.holes.at(-1),'終点',end]]){const m=node('g',{'data-path':path,'data-x':p.x,'data-y':p.y,'data-section':label},$('markers'));node('circle',{cx:0,cy:0,r:5,fill:colors[name]},m);node('text',{x:8,y:endpoint==='始点'?-10:22,style:'font-size:14px;stroke-width:3px'},m).textContent=`${label}${endpoint} #${index}`;}
+ const info=document.createElement('p');info.textContent=`${label}：#${start}〜#${end} ／ ${row.holes.length}穴 ／ 弧長ピッチ ${row.pitch.toFixed(3)}mm`;$('stats').append(info);
+ });
+ state.autoWalls={};for(const entry of entries){if(entry.label===entry.name+(state.sectionSelected[entry.name]+1))for(const [end,index] of Object.entries(entry.line.autoWalls||{}))state.autoWalls[end+entry.name]=index;}renderCornerSelections();
+ const summary=document.createElement('p');summary.textContent=`A全体 ${result.count}穴 ↔ B全体 ${result.count}穴。区間の番号順に対応し、区間間の空きには穴を置きません。`;$('stats').prepend(summary);$('warning').textContent=result.warning;
+ if(result.valid){state.latest={result,lines:entries.map(e=>e.line),units,width,diameter,rowSources:entries.map(e=>state.pathSources[e.path]),rowPaths:entries.map(e=>e.path),rowNames:entries.map(e=>e.label),rowNumbers:entries.map(e=>[e.firstNumber,e.lastNumber])};$('save').disabled=false;$('saveAll').disabled=false;$('share').disabled=!navigator.canShare;$('fixSet').disabled=draftSignature()===state.committedSignature;if($('fixSet').disabled)for(const id of ['holes','guides','markers'])$(id).replaceChildren();}updateMarkerScale();
+}
+
 function syncRanges(name){$('rangeStart'+name).value=$('start'+name).value;$('rangeEnd'+name).value=$('end'+name).value;}
 function number(id,min,max){const el=$(id),n=el.valueAsNumber;if(!Number.isFinite(n)||n<min||n>max)throw Error(`${el.parentElement.textContent.trim()}：${min}〜${max}の数値を入力してください。`);return n;}
 let frame=0;function schedule(){cancelAnimationFrame(frame);frame=requestAnimationFrame(calculate);}
+$('seamMode').addEventListener('change',()=>{if($('seamMode').value!=='sequence')state.sectionModeActive=false;});
 for(const id of ['width','width2','width3','seamMode','split','diameter','count','pitch','countMode',...lineNames.flatMap(n=>['side','offset','snap'].map(k=>k+n))])$(id).addEventListener('input',schedule);
 // History stores editor values and immutable source text, never generated hole SVG.
 const history=[],future=[];let previous=null,restoring=false,editGroup=null,groupRecorded=false;
 const fields=()=>[...document.querySelectorAll('aside input[id],aside select[id]')].filter(e=>e.type!=='file'&&e.type!=='range'&&e.id!=='exportSource');
-function snapshot(){return {partOffsets:structuredClone(state.partOffsets),rotation:state.rotation,partOrder:[...state.partOrder],source:state.sourceText,name:state.sourceLabel,sources:state.sources.map(s=>({text:s.text,name:s.name,width:s.width,id:s.id})),fixed:[...state.fixed],completed:[...state.completed],committedSignature:state.committedSignature,view:[...state.view],values:fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value])};}
+function snapshot(){return {sections:structuredClone(state.sections),sectionSelected:{...state.sectionSelected},partOffsets:structuredClone(state.partOffsets),rotation:state.rotation,partOrder:[...state.partOrder],source:state.sourceText,name:state.sourceLabel,sources:state.sources.map(s=>({text:s.text,name:s.name,width:s.width,id:s.id})),fixed:[...state.fixed],completed:[...state.completed],committedSignature:state.committedSignature,view:[...state.view],values:fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value])};}
 function same(a,b){return JSON.stringify(a)===JSON.stringify(b);}
 function checkpoint(){
  if(restoring||!state.doc)return;
@@ -62,7 +91,7 @@ function checkpoint(){
  }
  previous=current;updateHistoryButtons();
 }
-function calculate(){cancelAnimationFrame(frame);frame=0;checkpoint();recalculate();syncPartLayout();if(!restoring&&state.doc)previous=snapshot();}
+function calculate(){cancelAnimationFrame(frame);frame=0;persistSections();checkpoint();recalculate();syncPartLayout();if(!restoring&&state.doc)previous=snapshot();}
 // One continuous field edit (typing or dragging a slider) is one undo step.
 document.querySelector('aside').addEventListener('focusin',e=>{
  editGroup=e.target.matches('input[type=number],input[type=range]')?e.target.id:null;groupRecorded=false;
@@ -86,7 +115,7 @@ function restoreHistory(from,to,text){
   state.fixed=[...(saved.fixed||[])];state.completed=[...(saved.completed||[])];state.committedSignature=saved.committedSignature;
   for(const [id,value] of saved.values){const e=$(id);if(e.type==='checkbox')e.checked=value;else e.value=value;}
   for(const name of lineNames)syncRanges(name);
-  state.partOffsets=structuredClone(saved.partOffsets||{});state.rotation=saved.rotation||0;state.partOrder=[...(saved.partOrder||[])];state.view=[...saved.view];applyView();recalculate();syncPartLayout();
+  state.sections=structuredClone(saved.sections||null);state.sectionSelected={...(saved.sectionSelected||{A:0,B:0})};state.partOffsets=structuredClone(saved.partOffsets||{});state.rotation=saved.rotation||0;state.partOrder=[...(saved.partOrder||[])];state.view=[...saved.view];applyView();recalculate();syncPartLayout();
  }finally{restoring=false;editGroup=null;groupRecorded=false;previous=snapshot();updateHistoryButtons();}
  message(text);
 }
@@ -97,41 +126,14 @@ function resolveSide(value,index,reverse=false){
  if(!state.inside[index])throw Error(state.sources[state.pathSources[index]].insideError);
  return state.inside[index]*(reverse?-1:1)*(value==='outside'?-1:1);
 }
-function recalculate(){
- const joinedMode=$('seamMode').value==='joined',singleMode=$('seamMode').value==='single';
- $('singleModeButton').setAttribute('aria-pressed',singleMode);$('pairModeButton').setAttribute('aria-pressed',!singleMode);
- $('mode').querySelector('option[value=B]').disabled=singleMode;[...$('active').options].find(o=>o.value==='B').disabled=singleMode;if(singleMode&&$('active').value==='B')$('active').value='A';if(singleMode&&$('mode').value==='B')$('mode').value='A';
- let cOption=$('mode').querySelector('option[value=C]');if(!cOption){cOption=new Option('線Cを選択','C');$('mode').append(cOption);$('active').append(new Option('C','C'));}
- cOption.disabled=!joinedMode;$('active').querySelector('option[value=C]').disabled=!joinedMode;if(!joinedMode&&$('active').value==='C')$('active').value='A';if(!joinedMode&&$('mode').value==='C')$('mode').value='pan';
- state.autoWalls={};state.calculations++;state.latest=null;$('fixSet').disabled=true;$('save').disabled=!state.fixed.length;$('share').disabled=!state.fixed.length||!navigator.canShare;renderFixed();$('warning').textContent='';$('stats').replaceChildren();$('saveAll').disabled=!state.fixed.length;
- for(const id of ['guides','holes','markers'])$(id).replaceChildren();
- for(const name of lineNames){
-  document.querySelector(`.line[data-name=${name}]`).hidden=!activeNames().includes(name);
-  document.querySelector(`.line[data-name=${name}] h3`).textContent=$('seamMode').value==='joined'?({A:'A · つなぐ長い辺',B:'B · 前半につなぐ辺',C:'C · 後半につなぐ辺'}[name]):'線'+name;
-  for(const end of ['start','end'])$('inset'+end+name).disabled=$('insetMode'+end+name).value!=='manual';
-  const fixed=$('snap'+name).checked;$('offset'+name).disabled=fixed;if(fixed)$('offset'+name).value=3;
-  $('offsetHint'+name).textContent=fixed?'カット線から穴の中心まで3mmに固定。オフにすると距離を変更できます。':'固定を解除中。「オフセット mm」を変更してください。オフにするだけでは距離は変わりません。';
- }
- for(const name of lineNames)for(const end of ['start','end'])for(const o of $('corner'+end+name).options)if(o.value!==''&&o.value!=='auto')o.disabled=state.pathSources[+o.value]!==state.pathSources[+$('path'+name).value];
- renderCornerSelections();
- try{
-  if(!state.doc)return;
-  renderFixed();
-  const width=number('width',1,10000);for(let i=1;i<state.sources.length;i++)number('width'+(i+1),1,10000);rebuildScene();renderFixed();
-  $('joinedSettings').hidden=$('seamMode').value!=='joined';$('countLabel').textContent=singleMode?'穴数':joinedMode?'各組の穴数':'片側の穴数';
-  const units=state.sources[0].box[2]/width,diameter=number('diameter',.1,10),minPitch=number('pitch',10,1000);
-  const auto=$('countMode').value==='auto';
-  const count=auto?13:number('count',2,1000);$('count').disabled=auto;
-  if(joinedMode&&new Set(activeNames().map(n=>$('path'+n).value)).size!==activeNames().length)throw Error('A・B・Cには異なるカット線を選んでください。');
-  const lines=[],cornerErrors=[];
-  for(const name of activeNames()){
+function buildLine(name,units,draw=true,excluded=[]){
    const idx=+$('path'+name).value,path=state.paths[idx];
    const offset=$('snap'+name).checked?3:number('offset'+name,0,100);
    const start=number('start'+name,0,100)/100,end=number('end'+name,0,100)/100,side=resolveSide($('side'+name).value,idx,start>end);
    const key=idx+':'+units;
    if(!state.cache.has(key)){if(state.cache.size>30)state.cache.clear();state.cache.set(key,prepare(path,units));}
    let line=offsetLine(state.cache.get(key),start,end,offset*units,side);
-   const guide=node('path',{d:line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '),stroke:colors[name],'data-line':name},$('guides'));
+   const guide=draw?node('path',{d:line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '),stroke:colors[name],'data-line':name},$('guides')):null;
    try{
    const startAuto=$('cornerstart'+name).value==='auto',endAuto=$('cornerend'+name).value==='auto';
    if(startAuto||endAuto){
@@ -153,7 +155,7 @@ function recalculate(){
     corners[endpoint]=offsetLine(state.cache.get(neighborKey),0,1,offset*units,resolveSide($('cornerSide'+endpoint+name).value,neighbor));
    }
    if(corners.start||corners.end)line=alignCorners(line,corners);
-   const allWalls=state.paths.flatMap((p,i)=>{if(i===idx||!sameRegion(i,idx)||activeNames().some(n=>n!==name&&+$('path'+n).value===i))return [];const k=i+':'+units;if(!state.cache.has(k))state.cache.set(k,prepare(p,units));return [{index:i,prepared:state.cache.get(k)}];});
+   const allWalls=state.paths.flatMap((p,i)=>{if(i===idx||!sameRegion(i,idx)||excluded.includes(i)||activeNames().some(n=>n!==name&&+$('path'+n).value===i))return [];const k=i+':'+units;if(!state.cache.has(k))state.cache.set(k,prepare(p,units));return [{index:i,prepared:state.cache.get(k)}];});
    const insets={};
    for(const endpoint of ['start','end']){
     if($('corner'+endpoint+name).value!=='')continue;
@@ -168,9 +170,42 @@ function recalculate(){
    }
    line.insets=insets;
 
-   guide.setAttribute('d',line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '));
-   }catch(e){cornerErrors.push(`線${name}：${e.message}`);guide.setAttribute('data-corner-error','true');}
-   lines.push(line);
+   guide?.setAttribute('d',line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '));
+   }catch(e){guide?.setAttribute('data-corner-error','true');throw Error(`線${name}：${e.message}`);}
+
+return line;
+}
+function recalculate(){
+ const joinedMode=$('seamMode').value==='joined',singleMode=$('seamMode').value==='single';
+ $('singleModeButton').setAttribute('aria-pressed',singleMode);$('pairModeButton').setAttribute('aria-pressed',!singleMode);
+ $('mode').querySelector('option[value=B]').disabled=singleMode;[...$('active').options].find(o=>o.value==='B').disabled=singleMode;if(singleMode&&$('active').value==='B')$('active').value='A';if(singleMode&&$('mode').value==='B')$('mode').value='A';
+ let cOption=$('mode').querySelector('option[value=C]');if(!cOption){cOption=new Option('線Cを選択','C');$('mode').append(cOption);$('active').append(new Option('C','C'));}
+ cOption.disabled=!joinedMode;$('active').querySelector('option[value=C]').disabled=!joinedMode;if(!joinedMode&&$('active').value==='C')$('active').value='A';if(!joinedMode&&$('mode').value==='C')$('mode').value='pan';
+ state.autoWalls={};state.calculations++;state.latest=null;$('fixSet').disabled=true;$('save').disabled=!state.fixed.length;$('share').disabled=!state.fixed.length||!navigator.canShare;renderFixed();$('warning').textContent='';$('stats').replaceChildren();$('saveAll').disabled=!state.fixed.length;
+ for(const id of ['guides','holes','markers'])$(id).replaceChildren();
+ for(const name of lineNames){
+  document.querySelector(`.line[data-name=${name}]`).hidden=!activeNames().includes(name);
+  document.querySelector(`.line[data-name=${name}] h3`).textContent=$('seamMode').value==='joined'?({A:'A · つなぐ長い辺',B:'B · 前半につなぐ辺',C:'C · 後半につなぐ辺'}[name]):'線'+name;
+  for(const end of ['start','end'])$('inset'+end+name).disabled=$('insetMode'+end+name).value!=='manual';
+  const fixed=$('snap'+name).checked;$('offset'+name).disabled=fixed;if(fixed)$('offset'+name).value=3;
+  $('offsetHint'+name).textContent=fixed?'カット線から穴の中心まで3mmに固定。オフにすると距離を変更できます。':'固定を解除中。「オフセット mm」を変更してください。オフにするだけでは距離は変わりません。';
+ }
+ renderSections();
+ for(const name of lineNames)for(const end of ['start','end'])for(const o of $('corner'+end+name).options)if(o.value!==''&&o.value!=='auto')o.disabled=state.pathSources[+o.value]!==state.pathSources[+$('path'+name).value];
+ renderCornerSelections();
+ try{
+  if(!state.doc)return;
+  renderFixed();
+  const width=number('width',1,10000);for(let i=1;i<state.sources.length;i++)number('width'+(i+1),1,10000);rebuildScene();renderFixed();
+  $('joinedSettings').hidden=$('seamMode').value!=='joined';$('countLabel').textContent=$('seamMode').value==='sequence'?'片側の総穴数':singleMode?'穴数':joinedMode?'各組の穴数':'片側の穴数';
+  const units=state.sources[0].box[2]/width,diameter=number('diameter',.1,10),minPitch=number('pitch',10,1000);
+  const auto=$('countMode').value==='auto';
+  const count=auto?13:number('count',2,1000);$('count').disabled=auto;
+  if($('seamMode').value==='sequence'){calculateSections(units,width,diameter,minPitch,count);return;}
+  if(joinedMode&&new Set(activeNames().map(n=>$('path'+n).value)).size!==activeNames().length)throw Error('A・B・Cには異なるカット線を選んでください。');
+  const lines=[],cornerErrors=[];
+  for(const name of activeNames()){
+   try{lines.push(buildLine(name,units));}catch(e){cornerErrors.push(e.message);}
   }
   renderCornerSelections();
   if(cornerErrors.length)throw Error(cornerErrors.join(' ')+' 角合わせできない側は調整前の点線を表示しています。隣辺を選び直すか、↶で戻してください。');
@@ -312,8 +347,8 @@ function syncPartLayout(){
  const moved=Object.values(state.partOffsets).some(o=>o.x||o.y);$('drawing').style.display=moved?'none':'';
  if(moved)state.sources.forEach(source=>source.parts.forEach((part,pi)=>{const shift=partShift(source,pi),g=node('g',{transform:`translate(${source.tx+shift.x} ${source.ty+shift.y}) scale(${source.scale})`},layer);for(const i of part.indices)node('path',{d:pathD(source.paths[i]),fill:'none',stroke:'black','stroke-width':1,'vector-effect':'non-scaling-stroke'},g);}));
  const translate=(el,shift)=>el.setAttribute('transform',`translate(${shift.x} ${shift.y})`);
- for(const el of $('guides').children)translate(el,lineShift(el.dataset.line||'A'));
- for(const el of $('holes').children)translate(el,lineShift(el.dataset.hole?.[0]||'A'));
+ for(const el of $('guides').children)translate(el,el.hasAttribute('data-path')?pathShift(+el.dataset.path):lineShift(el.dataset.line||'A'));
+ for(const el of $('holes').children)translate(el,el.hasAttribute('data-path')?pathShift(+el.dataset.path):lineShift(el.dataset.hole?.[0]||'A'));
  for(const el of $('neighbors').children){const id=el.dataset.corner;if(id){const name=id.slice(-1),end=id.slice(0,-1),value=$('corner'+end+name).value;translate(el,pathShift(value==='auto'||value===''?state.autoWalls?.[end+name]:+value));}}
  for(const el of $('fixedHoles')?.children||[]){const key=el.dataset.part;if(key){const source=state.sources.find(s=>key.startsWith(s.id+':'));if(source)translate(el,partShift(source,+key.split(':')[1]));}}
  updateMarkerScale();
@@ -458,7 +493,8 @@ for(const [id,slot] of [['file',0],['file2',1],['file3',2]])$(id).onchange=async
 function updateMarkerScale(){
  const ctm=$('canvas').getScreenCTM();if(!ctm)return;
  const scale=Math.hypot(ctm.a,ctm.b);if(!Number.isFinite(scale)||scale<=0)return;
- for(const marker of $('markers').children)marker.setAttribute('transform',`translate(${+marker.dataset.x+lineShift(marker.dataset.endpoint?.slice(-1)||'A').x} ${+marker.dataset.y+lineShift(marker.dataset.endpoint?.slice(-1)||'A').y}) scale(${1/scale})`);
+ for(const fixed of document.querySelectorAll('[data-fixed-label]')){const key=fixed.dataset.part,source=state.sources.find(s=>key.startsWith(s.id+':'));if(!source)continue;const d=partShift(source,+key.split(':')[1]);fixed.setAttribute('transform',`translate(${+fixed.dataset.x+d.x} ${+fixed.dataset.y+d.y}) scale(${1/scale})`);}
+ for(const marker of $('markers').children){const shift=marker.hasAttribute('data-path')?pathShift(+marker.dataset.path):lineShift(marker.dataset.endpoint?.slice(-1)||'A');marker.setAttribute('transform',`translate(${+marker.dataset.x+shift.x} ${+marker.dataset.y+shift.y}) scale(${1/scale})`);}
 }
 function applyView(){$('camera').setAttribute('transform',`rotate(${state.rotation})`);$('rotationLabel').textContent=`表示 ${Math.round(state.rotation)}°`;$('canvas').setAttribute('viewBox',state.view.join(' '));updateMarkerScale();}
 new ResizeObserver(updateMarkerScale).observe($('canvas'));
@@ -527,23 +563,23 @@ export function exportSVG(sourceIndex=0){
  const seen=new Set();
  function appendHole(p,r,label){const key=[p.x.toFixed(6),p.y.toFixed(6),r.toFixed(6)].join(':');if(seen.has(key))return;seen.add(key);const c=doc.createElementNS(NS,'circle');for(const [k,v] of Object.entries({cx:p.x.toFixed(6),cy:p.y.toFixed(6),r:r.toFixed(6),'data-hole':label}))c.setAttribute(k,v);g.append(c);}
  state.fixed.forEach((set,k)=>set.rows.filter(r=>r.sourceId===source.id).forEach(row=>row.holes.forEach((p,i)=>appendHole(p,row.radius,`S${k+1}_${row.name}_${i+1}`))));
- if(state.latest&&draftSignature()!==state.committedSignature)state.latest.result.rows.forEach((row,j)=>{if(state.latest.rowSources[j]!==sourceIndex)return;row.holes.forEach((p,i)=>appendHole({x:(p.x-source.tx)/source.scale,y:(p.y-source.ty)/source.scale},state.latest.diameter*units/2,`${lineNames[j]}_${String(i+1).padStart(2,'0')}`));});
+ if(state.latest&&draftSignature()!==state.committedSignature)state.latest.result.rows.forEach((row,j)=>{if(state.latest.rowSources[j]!==sourceIndex)return;row.holes.forEach((p,i)=>appendHole({x:(p.x-source.tx)/source.scale,y:(p.y-source.ty)/source.scale},state.latest.diameter*units/2,`${state.latest.rowNames?.[j]||lineNames[j]}_${String(i+1).padStart(2,'0')}`));});
  return '<?xml version="1.0" encoding="UTF-8"?>\n'+new XMLSerializer().serializeToString(root);
 }
-function draftSignature(){return JSON.stringify({sources:state.sources.map(s=>s.id),values:fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value])});}
+function draftSignature(){return JSON.stringify({sources:state.sources.map(s=>s.id),sections:$('seamMode').value==='sequence'?state.sections:null,values:fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value])});}
 function renderFixed(){
  renderLibrary();
  let layer=$('fixedHoles');if(!layer){layer=node('g',{id:'fixedHoles','pointer-events':'none'},$('camera'));$('camera').insertBefore(layer,$('holes'));}layer.replaceChildren();
  $('fixedList').replaceChildren();$('fixedSummary').textContent=state.fixed.length?`${state.fixed.length}件の配置を固定済み。次の辺を選んで続けられます。`:'配置を固定すると、次の編集をしても針穴が残ります。';
  state.sources.forEach((s,i)=>{const locked=state.fixed.some(g=>g.rows.some(r=>r.sourceId===s.id));$(i?'width'+(i+1):'width').disabled=locked;if($(i?'file'+(i+1):'file'))$(i?'file'+(i+1):'file').disabled=locked;if(i===0)$('sample').disabled=locked;});
  state.fixed.forEach((set,index)=>{
-  for(const row of set.rows){const source=state.sources.find(s=>s.id===row.sourceId);if(!source)continue;for(const points of row.guides||[])node('path',{d:points.map((p,i)=>`${i?'L':'M'}${p.x*source.scale+source.tx},${p.y*source.scale+source.ty}`).join(' '),fill:'none',stroke:['#3b7759','#8564a7','#b77735','#397b91'][index%4],'stroke-width':2,'stroke-dasharray':'6 4','vector-effect':'non-scaling-stroke','data-fixed-set':index+1,'data-part':row.sourceId+':'+row.partIndex,'data-fixed-edge':row.name},layer);row.holes.forEach(p=>node('circle',{cx:p.x*source.scale+source.tx,cy:p.y*source.scale+source.ty,r:row.radius*source.scale,'data-part':row.sourceId+':'+row.partIndex,fill:'#375c48','fill-opacity':.7,stroke:'white','stroke-width':.7,'vector-effect':'non-scaling-stroke'},layer));}
+  for(const row of set.rows){const source=state.sources.find(s=>s.id===row.sourceId);if(!source)continue;for(const points of row.guides||[])node('path',{d:points.map((p,i)=>`${i?'L':'M'}${p.x*source.scale+source.tx},${p.y*source.scale+source.ty}`).join(' '),fill:'none',stroke:['#3b7759','#8564a7','#b77735','#397b91'][index%4],'stroke-width':2,'stroke-dasharray':'6 4','vector-effect':'non-scaling-stroke','data-fixed-set':index+1,'data-part':row.sourceId+':'+row.partIndex,'data-fixed-edge':row.name},layer);row.holes.forEach(p=>node('circle',{cx:p.x*source.scale+source.tx,cy:p.y*source.scale+source.ty,r:row.radius*source.scale,'data-part':row.sourceId+':'+row.partIndex,fill:'#375c48','fill-opacity':.7,stroke:'white','stroke-width':.7,'vector-effect':'non-scaling-stroke'},layer));if(row.numbers)for(const [p,end,number] of [[row.holes[0],'始点',row.numbers[0]],[row.holes.at(-1),'終点',row.numbers[1]]]){const g=node('g',{'data-fixed-label':row.name,'data-part':row.sourceId+':'+row.partIndex,'data-x':p.x*source.scale+source.tx,'data-y':p.y*source.scale+source.ty},layer);node('text',{x:8,y:end==='始点'?-10:22,style:'font-size:14px;fill:#375c48;stroke:white;stroke-width:3px;paint-order:stroke'},g).textContent=`${row.name}${end} #${number}`;}}
   const line=document.createElement('div');line.className='result';const label=document.createElement('span');label.textContent=`配置${index+1} · ${set.label} · ${set.rows.map(r=>r.holes.length).join(' / ')}穴 `;const remove=document.createElement('button');remove.textContent='固定を外す';remove.onclick=()=>{state.fixed.splice(index,1);calculate();};line.append(label,remove);$('fixedList').append(line);
  });
 }
 $('fixSet').onclick=()=>{
  calculate();if(!state.latest||draftSignature()===state.committedSignature)return;
- const latest=state.latest;const rows=latest.result.rows.map((row,j)=>{const source=state.sources[latest.rowSources[j]];const local=+$('path'+lineNames[j]).value-state.pathSources.indexOf(latest.rowSources[j]);const guides=(j===0&&latest.result.parts?latest.result.parts:[latest.lines[j]]).map(l=>l.points.map(p=>({x:(p.x-source.tx)/source.scale,y:(p.y-source.ty)/source.scale})));return {sourceId:source.id,partIndex:source.parts.findIndex(p=>p.indices.includes(local)),guides,name:lineNames[j],radius:latest.diameter*source.box[2]/source.width/2,holes:row.holes.map(p=>({x:(p.x-source.tx)/source.scale,y:(p.y-source.ty)/source.scale}))};});
+ const latest=state.latest;const rows=latest.result.rows.map((row,j)=>{const source=state.sources[latest.rowSources[j]];const local=(latest.rowPaths?.[j]??+$('path'+lineNames[j]).value)-state.pathSources.indexOf(latest.rowSources[j]);const guides=(j===0&&latest.result.parts?latest.result.parts:[latest.lines[j]]).map(l=>l.points.map(p=>({x:(p.x-source.tx)/source.scale,y:(p.y-source.ty)/source.scale})));return {sourceId:source.id,partIndex:source.parts.findIndex(p=>p.indices.includes(local)),guides,numbers:latest.rowNumbers?.[j],name:latest.rowNames?.[j]||lineNames[j],radius:latest.diameter*source.box[2]/source.width/2,holes:row.holes.map(p=>({x:(p.x-source.tx)/source.scale,y:(p.y-source.ty)/source.scale}))};});
  state.fixed.push({rows,label:$('seamMode').selectedOptions[0].textContent});state.committedSignature=draftSignature();calculate();message('この配置を固定しました。次の辺を選んで続けてください。');
 };
 $('singleModeButton').onclick=()=>{$('seamMode').value='single';calculate();message('1辺だけに配置します。パーツや辺Aを選んでください。');};
@@ -553,7 +589,7 @@ function printParts(){
  state.sources.forEach((source,si)=>source.parts.forEach((part,pi)=>{
   const holes=[];
   state.fixed.forEach(set=>set.rows.filter(r=>r.sourceId===source.id&&r.partIndex===pi).forEach(row=>row.holes.forEach(p=>holes.push({...p,r:row.radius}))));
-  if(state.latest&&draftSignature()!==state.committedSignature)state.latest.result.rows.forEach((row,j)=>{const index=+$('path'+lineNames[j]).value-state.pathSources.indexOf(si);if(state.latest.rowSources[j]!==si||!part.indices.includes(index))return;row.holes.forEach(p=>holes.push({x:(p.x-source.tx)/source.scale,y:(p.y-source.ty)/source.scale,r:state.latest.diameter*source.box[2]/source.width/2}));});
+  if(state.latest&&draftSignature()!==state.committedSignature)state.latest.result.rows.forEach((row,j)=>{const index=(state.latest.rowPaths?.[j]??+$('path'+lineNames[j]).value)-state.pathSources.indexOf(si);if(state.latest.rowSources[j]!==si||!part.indices.includes(index))return;row.holes.forEach(p=>holes.push({x:(p.x-source.tx)/source.scale,y:(p.y-source.ty)/source.scale,r:state.latest.diameter*source.box[2]/source.width/2}));});
   const mm=source.width/source.box[2],pad=1/mm;
   const minX=Math.min(part.box[0],...holes.map(p=>p.x-p.r))-pad,minY=Math.min(part.box[1],...holes.map(p=>p.y-p.r))-pad;
   const maxX=Math.max(part.box[0]+part.box[2],...holes.map(p=>p.x+p.r))+pad,maxY=Math.max(part.box[1]+part.box[3],...holes.map(p=>p.y+p.r))+pad;
