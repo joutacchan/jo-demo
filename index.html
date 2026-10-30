@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>針穴配置ツール</title>
-  <link rel="stylesheet" href="app/style.css?v=parts-library-1">
+  <link rel="stylesheet" href="app/style.css?v=a4-print-1">
 </head>
 <body>
 <header>
@@ -61,12 +61,12 @@
       <h2><span class="step">04</span> 確認して保存</h2>
       <button id="fixSet" class="primary" disabled>この配置を固定して残す</button><p id="fixedSummary" class="hint"></p><div id="fixedList"></div><div id="stats"></div><p id="warning" role="alert"></p>
       <label>保存する型紙<select id="exportSource" disabled><option value="0">型紙1</option><option value="1">型紙2</option><option value="2">型紙3</option></select></label>
-      <button id="save" class="primary" disabled>針穴入りSVGを保存</button><button id="saveAll" disabled>全SVGをまとめて保存（ZIP）</button><button id="share" class="secondary" disabled>ファイルを共有</button>
+      <button id="save" class="primary" disabled>針穴入りSVGを保存</button><button id="printA4">A4にまとめて実寸印刷</button><p class="hint">大きいパーツは10mm重ねて分割します。印刷倍率100%で、50mm目盛りを実測してください。</p><button id="saveAll" disabled>全SVGをまとめて保存（ZIP）</button><button id="share" class="secondary" disabled>ファイルを共有</button>
       <p class="hint">固定した配置と編集中の有効な配置をまとめて保存します。固定は再読み込みで消えるため、最後にSVGを保存してください。型紙ごとに保存できます。裁断前に寸法・向き・穴位置を確認してください。</p>
     </section>
   </aside>
 </main>
 <noscript>JavaScriptが動作していません。SafariでWebページを開いてください。</noscript>
-<script type="module" src="app/main.js?v=parts-library-1"></script>
+<script type="module" src="app/main.js?v=a4-print-1"></script>
 </body>
 </html>

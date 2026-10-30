@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,tangent,evaluate} from './geometry.js?v=parts-library-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,tangent,evaluate} from './geometry.js?v=a4-print-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -460,6 +460,51 @@ $('fixSet').onclick=()=>{
 };
 $('singleModeButton').onclick=()=>{$('seamMode').value='single';calculate();message('1辺だけに配置します。パーツや辺Aを選んでください。');};
 $('pairModeButton').onclick=()=>{$('seamMode').value='pair';calculate();message('辺A・Bの組み合わせに配置します。');};
+function printParts(){
+ const items=[];
+ state.sources.forEach((source,si)=>source.parts.forEach((part,pi)=>{
+  const holes=[];
+  state.fixed.forEach(set=>set.rows.filter(r=>r.sourceId===source.id&&r.partIndex===pi).forEach(row=>row.holes.forEach(p=>holes.push({...p,r:row.radius}))));
+  if(state.latest&&draftSignature()!==state.committedSignature)state.latest.result.rows.forEach((row,j)=>{const index=+$('path'+lineNames[j]).value-state.pathSources.indexOf(si);if(state.latest.rowSources[j]!==si||!part.indices.includes(index))return;row.holes.forEach(p=>holes.push({x:(p.x-source.tx)/source.scale,y:(p.y-source.ty)/source.scale,r:state.latest.diameter*source.box[2]/source.width/2}));});
+  const mm=source.width/source.box[2],pad=1/mm;
+  const minX=Math.min(part.box[0],...holes.map(p=>p.x-p.r))-pad,minY=Math.min(part.box[1],...holes.map(p=>p.y-p.r))-pad;
+  const maxX=Math.max(part.box[0]+part.box[2],...holes.map(p=>p.x+p.r))+pad,maxY=Math.max(part.box[1]+part.box[3],...holes.map(p=>p.y+p.r))+pad;
+  items.push({source,part,holes,mm,box:[minX,minY,maxX-minX,maxY-minY],w:(maxX-minX)*mm,h:(maxY-minY)*mm,label:`型紙${si+1} パーツ${pi+1} · ${source.name}`});
+ }));return items;
+}
+function buildPrintDocument(){
+ const items=printParts(),pages=[];let page=null,x=0,y=0,rowHeight=0;
+ const newPage=()=>{if(pages.length>=500)throw Error('500ページを超えます。SVGの横幅mmを確認してください。');page=[];pages.push(page);x=0;y=0;rowHeight=0;};
+ for(const item of [...items].sort((a,b)=>b.h-a.h)){
+  const rotated=item.w>190&&item.w<=255&&item.h<=190,w=rotated?item.h:item.w,h=rotated?item.w:item.h;
+  if(w>190||h>255){
+   const cols=Math.max(1,Math.ceil((item.w-10)/180)),rows=Math.max(1,Math.ceil((item.h-10)/245));
+   if(pages.length+cols*rows>500)throw Error('500ページを超えます。SVGの横幅mmを確認してください。');
+   for(let r=0;r<rows;r++)for(let c=0;c<cols;c++)pages.push([{item,x:0,y:0,w:190,h:255,box:[item.box[0]+c*180/item.mm,item.box[1]+r*245/item.mm,190/item.mm,255/item.mm],tile:`分割 ${r+1}/${rows}行・${c+1}/${cols}列（重なり10mm）`}]);
+   page=null;continue;
+  }
+  if(!page)newPage();if(x+w>190+.00001){x=0;y+=rowHeight+4;rowHeight=0;}
+  if(y+h+5>260+.00001)newPage();
+  page.push({item,x,y,w,h,rotated,box:item.box});x+=w+4;rowHeight=Math.max(rowHeight,h+5);
+ }
+ const doc=document.implementation.createHTMLDocument('A4実寸型紙');doc.documentElement.lang='ja';
+ const style=doc.createElement('style');style.textContent='@page{size:A4 portrait;margin:0}*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif}.controls{padding:16px;background:#edf2e7}button{font:inherit;padding:10px}.sheet{width:210mm;height:297mm;position:relative;break-after:page;page-break-after:always;overflow:hidden;background:white}.sheet:last-child{break-after:auto;page-break-after:auto}.heading{position:absolute;left:10mm;top:4mm;font-size:3mm}.art{position:absolute;left:10mm;top:15mm;width:190mm;height:260mm}.ruler{position:absolute;left:10mm;bottom:4mm;width:60mm;height:8mm}@media screen{body{background:#ddd}.sheet{margin:12px auto;box-shadow:0 1px 6px #999}}@media print{.controls{display:none}.sheet{margin:0;box-shadow:none}}';doc.head.append(style);
+ const controls=doc.createElement('div');controls.className='controls';controls.textContent=`${pages.length}枚のA4。倍率100%・用紙A4・余白なし・ヘッダー/フッターなしで印刷してください。用紙に合わせる縮小はOFF。まず50mm目盛りを実測してください。幅が未校正のSVGは実寸未確認です。 `;
+ const button=doc.createElement('button');button.textContent='印刷／PDFとして保存';button.setAttribute('onclick','window.print()');controls.append(button);doc.body.append(controls);
+ pages.forEach((placements,index)=>{
+  const sheet=doc.createElement('section');sheet.className='sheet';const heading=doc.createElement('div');heading.className='heading';heading.textContent=`A4 ${index+1}/${pages.length} · 実寸100%${placements[0]?.tile?' · '+placements[0].tile:''}`;sheet.append(heading);
+  const svg=doc.createElementNS(NS,'svg');svg.classList.add('art');svg.setAttribute('viewBox','0 0 190 260');sheet.append(svg);
+  for(const placement of placements){const {item}=placement;const label=node('text',{x:placement.x,y:placement.y+3,'font-size':2.5},svg);label.textContent=item.label;
+   const parent=placement.rotated?node('g',{transform:`translate(${placement.x+placement.w} ${placement.y+5}) rotate(90)`},svg):svg;
+   const partSvg=node('svg',{x:placement.rotated?0:placement.x,y:placement.rotated?0:placement.y+5,width:placement.rotated?item.w:placement.w,height:placement.rotated?item.h:placement.h,viewBox:placement.box.join(' '),overflow:'hidden'},parent);
+   for(const i of item.part.indices)node('path',{d:pathD(item.source.paths[i]),fill:'none',stroke:'black','stroke-width':.15/item.mm},partSvg);
+   const seen=new Set();for(const p of item.holes){const key=[p.x,p.y,p.r].map(v=>v.toFixed(6)).join(':');if(seen.has(key))continue;seen.add(key);node('circle',{cx:p.x,cy:p.y,r:p.r,fill:'none',stroke:'black','stroke-width':.1/item.mm},partSvg);}
+  }
+  const ruler=doc.createElementNS(NS,'svg');ruler.classList.add('ruler');ruler.setAttribute('viewBox','0 0 60 8');node('path',{d:'M0 2V5M0 4H50M50 2V5',stroke:'black','stroke-width':.2,fill:'none'},ruler);node('text',{x:15,y:7.5,'font-size':2.5},ruler).textContent='この長さが50mm';sheet.append(ruler);doc.body.append(sheet);
+ });
+ return {html:'<!doctype html>'+doc.documentElement.outerHTML,pages,items};
+}
+$('printA4').onclick=()=>{const popup=window.open('','_blank');if(!popup){message('印刷画面を開けません。ポップアップを許可してください。');return;}try{calculate();const result=buildPrintDocument();popup.document.open();popup.document.write(result.html);popup.document.close();}catch(e){popup.close();message(e.message);}};
 function file(){const index=+$('exportSource').value;return new File([exportSVG(index)],state.sources.length>1?`型紙${index+1}_${state.sources[index].name.replace(/\.svg$/i,'')}_針穴.svg`:'針穴配置済み.svg',{type:'image/svg+xml'});}
 // Uncompressed UTF-8 ZIP, written locally without uploading the imported SVGs.
 function zipSVGs(){
@@ -477,6 +522,6 @@ $('saveAll').onclick=()=>{try{calculate();const f=zipSVGs(),url=URL.createObject
 $('save').onclick=()=>{try{calculate();const f=file(),url=URL.createObjectURL(f),a=document.createElement('a');a.href=url;a.download=f.name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);message('SVGを作成しました。Safariのダウンロード、または「ファイルを共有」から保存してください。');}catch(e){message(e.message);}};
 $('share').onclick=async()=>{try{calculate();const f=file();if(!navigator.canShare?.({files:[f]}))throw Error('このブラウザでは共有できません。SVGを保存してください。');await navigator.share({files:[f]});}catch(e){if(e.name!=='AbortError')message(e.message);}};
 // Read-only diagnostics used by the regression suite; no external requests.
-window.stitch={state,loadSVG,loadSecondSVG,loadThirdSVG,importBatch,exportSVG,calculate};
+window.stitch={state,loadSVG,loadSecondSVG,loadThirdSVG,importBatch,exportSVG,calculate,buildPrintDocument};
 window.addEventListener('error',e=>{message('エラー：'+e.message);$('boot').textContent='エラーが発生しました';});
 sample();
