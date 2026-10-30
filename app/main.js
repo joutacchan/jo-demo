@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined} from './geometry.js?v=reverse-auto-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,tangent} from './geometry.js?v=selection-pinch-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:['A','B'];
@@ -187,6 +187,16 @@ function recalculate(){
   if(result.valid){state.latest={result,lines,units,width,diameter,rowSources:activeNames().map(n=>state.pathSources[+$('path'+n).value])};$('save').disabled=false;$('share').disabled=!navigator.canShare;}
  }catch(e){$('warning').textContent=e.message;}
 }
+// Split only selection geometry at sharp corners; original SVG documents remain untouched.
+function splitSharpPath(path){
+ const runs=[];let segments=[];
+ for(const segment of path.segments){
+  if(segments.length){const a=tangent(segments.at(-1),1),b=tangent(segment,0);if(a.x*b.x+a.y*b.y<Math.cos(Math.PI/12)-1e-9){runs.push({start:segments[0][0],segments,closed:false});segments=[];}}
+  segments.push(segment);
+ }
+ if(!runs.length)return [path];
+ runs.push({start:segments[0][0],segments,closed:false});return runs;
+}
 function validateDocument(doc){
  if(doc.querySelector('parsererror')||doc.documentElement.localName!=='svg')throw Error('正しいSVGファイルを指定してください。');
  const root=doc.documentElement;
@@ -200,7 +210,7 @@ function validateDocument(doc){
  }
  const box=(root.getAttribute('viewBox')||'').trim().split(/[\s,]+/).map(Number);
  if(box.length!==4||box.some(v=>!Number.isFinite(v))||box[2]<=0||box[3]<=0)throw Error('有効なviewBoxが必要です。');
- const paths=[...root.querySelectorAll('path')].flatMap(el=>parsePath(el.getAttribute('d')||''));
+ const paths=[...root.querySelectorAll('path')].flatMap(el=>parsePath(el.getAttribute('d')||'')).flatMap(splitSharpPath);
  if(paths.length<1||paths.length>100)throw Error('1〜100本のサブパスを含むSVGを指定してください。');
  return {box,paths};
 }
@@ -328,18 +338,22 @@ function hit(x,y){
  for(const i of candidates){const key=i+':'+units;if(!state.cache.has(key))state.cache.set(key,prepare(state.paths[i],units));const prep=state.cache.get(key);let passed=0;for(const table of prep.tables){const match=nearest(table.points,p);if(match.d<best.d)best={d:match.d,index:i,percent:100*(passed+match.s)/prep.total};passed+=table.len;}}
  if(best.d>limit){message('線の近くをタップしてください。番号リストからも選択できます。');return;}
  if(corner){const name=$('active').value;$(mode+name).value=best.index;calculate();message($('warning').textContent||`線${name}の${mode==='cornerstart'?'始点':'終点'}の隣辺を選びました。図の太い線で確認できます。別の辺をタップすると変更できます。`);}
- else if(lineNames.includes(mode)){$('path'+mode).value=best.index;$('path'+mode).onchange();message(`線${mode}にカット線${best.index+1}を選びました。`);}
+ else if(lineNames.includes(mode)){$('path'+mode).value=best.index;$('path'+mode).onchange();$('active').value=mode;message($('warning').textContent||`線${mode}にカット線${best.index+1}を選びました。`);}
  else{const name=$('active').value;$(mode+name).value=best.percent.toFixed(1);syncRanges(name);calculate();message(`線${name}の${mode==='start'?'始点':'終点'}を変更しました。`);}
 }
 const pointers=new Map();let gesture=null,multi=false;
 const pinch=()=>{const a=[...pointers.values()];return a.length<2?null:{x:(a[0].x+a[1].x)/2,y:(a[0].y+a[1].y)/2,d:Math.max(1,Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y))};};
-$('stage').onpointerdown=e=>{if(e.pointerType==='mouse'&&e.button!==0)return;$('stage').setPointerCapture(e.pointerId);pointers.set(e.pointerId,{x:e.clientX,y:e.clientY,sx:e.clientX,sy:e.clientY,moved:false});if(pointers.size>1){multi=true;gesture=pinch();}};
+$('stage').onpointerdown=e=>{if(e.pointerType==='mouse'&&e.button!==0)return;$('stage').setPointerCapture(e.pointerId);pointers.set(e.pointerId,{x:e.clientX,y:e.clientY,sx:e.clientX,sy:e.clientY,moved:false});if(pointers.size===2){multi=true;const g=pinch();gesture={...g,view:[...state.view],anchor:local(g.x,g.y)};}};
 $('stage').onpointermove=e=>{
  const p=pointers.get(e.pointerId);if(!p)return;const before=local(p.x,p.y);p.x=e.clientX;p.y=e.clientY;p.moved ||=Math.hypot(p.x-p.sx,p.y-p.sy)>6;
- if(pointers.size>1){const next=pinch();if(gesture){const anchor=local(gesture.x,gesture.y);zoom(next.d/gesture.d,gesture.x,gesture.y);const now=local(next.x,next.y);state.view[0]+=anchor.x-now.x;state.view[1]+=anchor.y-now.y;applyView();}gesture=next;}
+ if(pointers.size>1){const next=pinch();if(gesture){
+  const width=Math.max(state.base[2]/40,Math.min(state.base[2]*4,gesture.view[2]*gesture.d/next.d)),ratio=width/gesture.view[2];
+  state.view=[gesture.anchor.x+(gesture.view[0]-gesture.anchor.x)*ratio,gesture.anchor.y+(gesture.view[1]-gesture.anchor.y)*ratio,width,gesture.view[3]*ratio];applyView();
+  const now=local(next.x,next.y);state.view[0]+=gesture.anchor.x-now.x;state.view[1]+=gesture.anchor.y-now.y;applyView();
+ }}
  else if(p.moved){const now=local(p.x,p.y);state.view[0]+=before.x-now.x;state.view[1]+=before.y-now.y;applyView();}
 };
-function endPointer(e,cancel=false){const p=pointers.get(e.pointerId);if(!p)return;if(!cancel&&!multi&&!p.moved)try{hit(e.clientX,e.clientY);}catch(err){message(err.message);}pointers.delete(e.pointerId);gesture=pinch();if(!pointers.size){multi=false;checkpoint();}}
+function endPointer(e,cancel=false){const p=pointers.get(e.pointerId);if(!p)return;if(!cancel&&!multi&&!p.moved)try{hit(e.clientX,e.clientY);}catch(err){message(err.message);}pointers.delete(e.pointerId);gesture=null;if(pointers.size>=2){const g=pinch();gesture={...g,view:[...state.view],anchor:local(g.x,g.y)};}for(const remaining of pointers.values()){remaining.sx=remaining.x;remaining.sy=remaining.y;if(multi)remaining.moved=true;}if(!pointers.size){multi=false;checkpoint();}}
 $('stage').onpointerup=e=>endPointer(e);$('stage').onpointercancel=e=>endPointer(e,true);$('stage').onlostpointercapture=e=>endPointer(e,true);
 export function exportSVG(sourceIndex=0){
  if(!state.latest)throw Error('条件を満たす配置を作成してください。');
