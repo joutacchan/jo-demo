@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>針穴配置ツール</title>
-  <link rel="stylesheet" href="app/style.css?v=large-editor-1">
+  <link rel="stylesheet" href="app/style.css?v=free-layout-1">
 </head>
 <body>
 <header>
@@ -17,7 +17,7 @@
     <div class="mode-tabs"><button id="singleModeButton">1辺だけに配置</button><button id="pairModeButton">組み合わせて配置</button></div><div class="toolbar">
       <button id="undo" title="1つ戻す" disabled aria-label="1つ前の状態に戻す">↶</button>
       <button id="redo" title="1つ進む" disabled aria-label="戻した操作を1つやり直す">↷</button>
-      <label>タップで操作<select id="mode"><option value="pan">移動</option><option value="A">線Aを選択</option><option value="B">線Bを選択</option><option value="start">始点を指定</option><option value="end">終点を指定</option><option value="cornerstart">始点の隣辺を選択</option><option value="cornerend">終点の隣辺を選択</option></select></label>
+      <label>タップで操作<select id="mode"><option value="pan">視点を移動</option><option value="partMove">パーツを移動</option><option value="A">線Aを選択</option><option value="B">線Bを選択</option><option value="start">始点を指定</option><option value="end">終点を指定</option><option value="cornerstart">始点の隣辺を選択</option><option value="cornerend">終点の隣辺を選択</option></select></label>
       <label>対象<select id="active"><option>A</option><option>B</option></select></label>
       <button id="minus" aria-label="縮小">−</button><button id="plus" aria-label="拡大">＋</button><button id="fit">全体</button>
     </div>
@@ -67,6 +67,6 @@
   </aside>
 </main>
 <noscript>JavaScriptが動作していません。SafariでWebページを開いてください。</noscript>
-<script type="module" src="app/main.js?v=large-editor-1"></script>
+<script type="module" src="app/main.js?v=free-layout-1"></script>
 </body>
 </html>
