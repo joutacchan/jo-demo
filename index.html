@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>針穴配置ツール</title>
-  <link rel="stylesheet" href="app/style.css?v=two-svg-1">
+  <link rel="stylesheet" href="app/style.css?v=joined-inset-1">
 </head>
 <body>
 <header>
@@ -38,29 +38,35 @@
         <label class="file">型紙2 <span class="optional">任意</span><input id="file2" type="file" accept=".svg,image/svg+xml"></label>
         <div id="secondSource" hidden><p id="secondSourceName" class="filename"></p><label class="dimension">型紙2の横幅 <span>mm</span><input id="width2" type="number" value="210" min="1" max="10000" step="0.1"></label><button id="removeSecond" class="quiet" disabled>型紙2を外す</button></div>
       </div>
+      <details class="help"><summary>3枚目の型紙を追加</summary><div class="source-card">
+        <label class="file">型紙3<input id="file3" type="file" accept=".svg,image/svg+xml"></label>
+        <div id="thirdSource" hidden><p id="thirdSourceName" class="filename"></p><label class="dimension">型紙3の横幅 <span>mm</span><input id="width3" type="number" value="210" min="1" max="10000" step="0.1"></label><button id="removeThird" class="quiet" disabled>型紙3を外す</button></div>
+      </div></details>
       <div class="source-footer"><button id="sample" class="quiet">サンプルを使う</button><span class="hint">SVGは端末内で処理</span></div>
       <details class="help"><summary>横幅・実寸について</summary><p class="hint">横幅はSVG全体の実寸です。210mmは仮の値なので、各型紙の寸法を確認してください。印刷は100%。補正横幅＝現在の横幅×希望寸法÷測った寸法。</p></details>
     </section>
     <section class="card" id="seamSettings">
       <h2><span class="step">02</span> 縫い合わせる辺</h2>
       <p class="intro">AとBに、同じ数の針穴を並べます。</p>
+      <label>縫い合わせ方<select id="seamMode"><option value="pair">1つの辺 ↔ 1つの辺</option><option value="joined">1つの辺 ↔ 2つの辺（前半・後半）</option></select></label>
+      <div id="joinedSettings" hidden><label>Aの分割位置 %<input id="split" type="number" min="0.1" max="99.9" step="0.1" value="50"></label><p class="hint">A前半をBへ、A後半をCへ。境目の穴は重ねず、A上で最小ピッチ以上を空けます。始終点%は各辺の詳細で調整できます。</p></div>
       <div id="lineFields"></div>
     </section>
     <section class="card" id="holeSettings">
       <h2><span class="step">03</span> 針穴の設定</h2>
-      <div class="grid"><label>穴数の決め方<select id="countMode"><option value="auto" selected>自動（おすすめ）</option><option value="fixed">手動で指定</option></select></label><label>片側の穴数<input id="count" type="number" min="2" max="1000" step="1" value="13" disabled></label></div>
+      <div class="grid"><label>穴数の決め方<select id="countMode"><option value="auto" selected>自動（おすすめ）</option><option value="fixed">手動で指定</option></select></label><label><span id="countLabel">片側の穴数</span><input id="count" type="number" min="2" max="1000" step="1" value="13" disabled></label></div>
       <details class="advanced"><summary>穴径・間隔を調整</summary><div class="grid"><label>穴径 mm<input id="diameter" type="number" value="0.6" min="0.1" max="10" step="0.1"></label><label>最小ピッチ mm<input id="pitch" type="number" min="10" step="0.1" value="10"></label></div><p class="hint">ピッチは縫い線に沿った弧長で判定します。穴中心の直線距離は計算結果に表示します。</p></details>
     </section>
     <section class="card export" id="exportSettings">
       <h2><span class="step">04</span> 確認して保存</h2>
       <div id="stats"></div><p id="warning" role="alert"></p>
-      <label>保存する型紙<select id="exportSource" disabled><option value="0">型紙1</option><option value="1">型紙2</option></select></label>
+      <label>保存する型紙<select id="exportSource" disabled><option value="0">型紙1</option><option value="1">型紙2</option><option value="2">型紙3</option></select></label>
       <button id="save" class="primary" disabled>針穴入りSVGを保存</button><button id="share" class="secondary" disabled>ファイルを共有</button>
-      <p class="hint">2枚ある場合はそれぞれ保存できます。裁断前に寸法・向き・穴位置を確認してください。</p>
+      <p class="hint">型紙ごとに保存できます。裁断前に寸法・向き・穴位置を確認してください。</p>
     </section>
   </aside>
 </main>
 <noscript>JavaScriptが動作していません。SafariでWebページを開いてください。</noscript>
-<script type="module" src="app/main.js?v=two-svg-1"></script>
+<script type="module" src="app/main.js?v=joined-inset-1"></script>
 </body>
 </html>

@@ -216,7 +216,7 @@ export function interiorSides(paths,scale=1){
 
 // Follow the offset curve, continuing its end Bezier polynomial when necessary.
 // Walls are sampled original cut lines; a spatial index tests the 3mm clearance band.
-export function fitWalls(prepared,start,end,offset,side,walls,{startAuto=false,endAuto=false,clearance=3,maxLength=1000}={}){
+export function fitWalls(prepared,start,end,offset,side,walls,{startAuto=false,endAuto=false,clearance=3,maxLength=1000,extend=true,baseLine=null}={}){
  const units=prepared.units,r=(clearance+.0003)*units,cell=Math.max(r,units),grid=new Map();
  for(const wall of walls)for(const table of wall.prepared.tables)for(let i=1;i<table.points.length;i++){
   const a=table.points[i-1],b=table.points[i];
@@ -232,11 +232,11 @@ export function fitWalls(prepared,start,end,offset,side,walls,{startAuto=false,e
    if(d<best.d)best={d,index};
   }return best;
  }
- const reverse=start>end,base=offsetLine(prepared,start,end,offset,side);
- const full=offsetLine(prepared,startAuto?(reverse?1:0):start,endAuto?(reverse?0:1):end,offset,side);
+ const reverse=start>end,base=baseLine||offsetLine(prepared,start,end,offset,side);
+ const full=baseLine||offsetLine(prepared,startAuto?(reverse?1:0):start,endAuto?(reverse?0:1):end,offset,side);
  const center=along(base,base.len/2);let anchor=0;
  for(let i=1;i<full.points.length;i++)if(distance(full.points[i],center)<distance(full.points[anchor],center))anchor=i;
- if(near(full.points[anchor]).d<=r)throw Error('区間の中央が壁から3mm以内です。始点・終点を見直してください。');
+ if(near(full.points[anchor]).d<=r)throw Error(`区間の中央が壁から${clearance}mm以内です。始点・終点を見直してください。`);
  const autoWalls={};
  function follow(isStart){
   const points=isStart?full.points.slice(0,anchor+1).reverse():full.points.slice(anchor);
@@ -251,6 +251,7 @@ export function fitWalls(prepared,start,end,offset,side,walls,{startAuto=false,e
   }
   let travelled=0;
   for(const p of points.slice(1)){travelled+=distance(kept.at(-1),p);if(advance(p))return kept;}
+  if(!extend)return null;
   const sourceStart=isStart?!reverse:reverse,c=sourceStart?prepared.path.segments[0]:prepared.path.segments.at(-1),boundary=sourceStart?0:1,step=sourceStart?-.125:.125;
   const v0=tangent(c,boundary),sign=side*(reverse?-1:1);
   const fn=t=>{const v=tangent(c,t);if(v.x*v0.x+v.y*v0.y<=0)throw Error('カーブの延長が折り返します。自動調整を解除して端点を指定してください。');const p=evaluate(c,t);return point(p.x-v.y*offset*sign,p.y+v.x*offset*sign);};
@@ -280,6 +281,40 @@ export function fitWalls(prepared,start,end,offset,side,walls,{startAuto=false,e
  if((!startAuto||unchangedEnds.includes('start'))&&(!endAuto||unchangedEnds.includes('end')))return {...base,autoWalls,unchangedEnds};
  const points=[...a.reverse(),...b.slice(1)];let len=0;
  for(let i=0;i<points.length;i++){if(i)len+=distance(points[i-1],points[i]);points[i]={...points[i],s:len};}
- if(len<1e-7)throw Error('壁から3mmを確保できる区間がありません。');
+ if(len<1e-7)throw Error(`壁から${clearance}mmを確保できる区間がありません。`);
  return {points,len,units,autoWalls,unchangedEnds};
+}
+
+// Detect only walls touching this cut endpoint; a distant wall must not move an open tip.
+export function touchingWalls(prepared,fraction,walls){
+ let remaining=fraction*prepared.total,p=prepared.path.start;
+ for(const table of prepared.tables){if(remaining<=table.len){p=at(table,remaining);break;}remaining-=table.len;p=table.points.at(-1);}
+ const tolerance=.001*prepared.units;
+ return walls.filter(w=>w.prepared.tables.some(table=>table.points.slice(1).some((b,i)=>{
+  const a=table.points[i],dx=b.x-a.x,dy=b.y-a.y,f=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy||1)));
+  return distance(p,mix(a,b,f))<=tolerance;
+ })));
+}
+export function trimLine(line,startDistance=0,endDistance=0){
+ if(startDistance<0||endDistance<0||startDistance+endDistance>=line.len-1e-7)throw Error('控え量が大きすぎます。縫い区間を広げるか控え量を減らしてください。');
+ const end=line.len-endDistance;
+ const points=[{...along(line,startDistance),s:startDistance},...line.points.filter(p=>p.s>startDistance&&p.s<end),{...along(line,end),s:end}].map(p=>({...p,s:p.s-startDistance}));
+ return {...line,points,len:end-startDistance};
+}
+// No shared hole at the join: leave at least one minimum pitch across the boundary on A.
+export function placeJoined(a,b,c,{split=.5,mode='auto',count=13,minPitch=10}={}){
+ if(!Number.isFinite(split)||split<=0||split>=1)throw Error('分割位置は0%より大きく100%より小さくしてください。');
+ const boundary=a.len*split,gap=(minPitch+.0001)*a.units;
+ const first=trimLine(a,0,a.len-boundary+gap/2),second=trimLine(a,boundary+gap/2,0);
+ const pairs=[place(first,b,{mode,count,minPitch}),place(second,c,{mode,count,minPitch})];
+ return {pairs,parts:[first,second],boundary:along(a,boundary),gap:distance(along(a,boundary-gap/2),along(a,boundary+gap/2))/a.units,
+  rows:[{holes:[...pairs[0].rows[0].holes,...pairs[1].rows[0].holes]},pairs[0].rows[1],pairs[1].rows[1]],valid:pairs.every(p=>p.valid),warning:pairs.map(p=>p.warning).filter(Boolean).join(' ')};
+}
+
+export function distanceToWalls(p,walls){
+ let nearest=Infinity;
+ for(const wall of walls)for(const table of wall.prepared.tables)for(let i=1;i<table.points.length;i++){
+  const a=table.points[i-1],b=table.points[i],dx=b.x-a.x,dy=b.y-a.y,f=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy||1)));
+  nearest=Math.min(nearest,distance(p,mix(a,b,f)));
+ }return nearest;
 }
