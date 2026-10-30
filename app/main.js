@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined} from './geometry.js?v=wall-ends-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined} from './geometry.js?v=reverse-auto-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:['A','B'];
@@ -37,7 +37,7 @@ for(const name of lineNames){
   $('range'+end+name).oninput=e=>{$(id).value=e.target.value;schedule();};
   $(id).oninput=e=>{$('range'+end+name).value=e.target.value;schedule();};
  }
- $('reverse'+name).onclick=()=>{for(const prefix of ['insetMode','inset']){const a=$(prefix+'start'+name),b=$(prefix+'end'+name);[a.value,b.value]=[b.value,a.value];}const a=$('start'+name),b=$('end'+name);[a.value,b.value]=[b.value,a.value];syncRanges(name);calculate();};
+ $('reverse'+name).onclick=()=>{const a=$('start'+name),b=$('end'+name);[a.value,b.value]=[b.value,a.value];for(const end of ['start','end']){$('corner'+end+name).value='';$('insetMode'+end+name).value='offset';}syncRanges(name);calculate();message($('warning').textContent||'始点と終点を入れ替え、壁に接する端の控えを自動で設定しました。');};
  $('path'+name).onchange=()=>{for(const endpoint of ['start','end']){$('corner'+endpoint+name).value='';$('insetMode'+endpoint+name).value='offset';}$('start'+name).value=0;$('end'+name).value=100;syncRanges(name);calculate();};
 }
 function syncRanges(name){$('rangeStart'+name).value=$('start'+name).value;$('rangeEnd'+name).value=$('end'+name).value;}
