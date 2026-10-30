@@ -13,3 +13,9 @@ aside{height:100%;min-height:0;overflow-y:auto;overscroll-behavior-y:contain;-we
 @media(prefers-reduced-motion:reduce){button{transition:none}}
 
 .line[data-name=C]{border-left-color:#8564a7}.line[data-name=C] h3{color:#8564a7}.inset-controls{margin:12px 0}#joinedSettings{padding:12px;margin:12px 0;background:#f5f6ef;border-radius:12px}
+
+.mode-tabs{display:flex;gap:6px;flex:none}.mode-tabs button{flex:1;font-size:14px}.mode-tabs button[aria-pressed=true]{background:#28583f;color:white}#partCards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.part-card{border:1px solid #d7dfd4;border-radius:12px;padding:6px;min-width:0}.part-card.complete{background:#e4efdf}.part-card button{width:100%;font-size:12px}.part-show svg{width:100%;height:75px;display:block}.part-show{overflow-wrap:anywhere}.batch-upload{display:block;padding:12px;background:#edf2e7;border-radius:12px}#librarySummary{font-size:13px;margin:10px 0}
+
+@media(max-height:500px){.preview .heading{display:none}.mode-tabs button{padding:3px 6px;min-height:36px;margin:0}.preview #message{height:1.3em;min-height:1.3em;flex-basis:1.3em}}
+
+#partCards{max-height:300px;overflow:auto;overscroll-behavior:contain}

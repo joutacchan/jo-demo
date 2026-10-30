@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>針穴配置ツール</title>
-  <link rel="stylesheet" href="app/style.css?v=fixed-sets-1">
+  <link rel="stylesheet" href="app/style.css?v=parts-library-1">
 </head>
 <body>
 <header>
@@ -14,7 +14,7 @@
 <main>
   <section class="card preview" aria-label="型紙プレビュー">
     <div class="heading"><h2>プレビュー</h2><span id="sourceName"></span></div>
-    <div class="toolbar">
+    <div class="mode-tabs"><button id="singleModeButton">1辺だけに配置</button><button id="pairModeButton">組み合わせて配置</button></div><div class="toolbar">
       <button id="undo" title="1つ戻す" disabled aria-label="1つ前の状態に戻す">↶</button>
       <button id="redo" title="1つ進む" disabled aria-label="戻した操作を1つやり直す">↷</button>
       <label>タップで操作<select id="mode"><option value="pan">移動</option><option value="A">線Aを選択</option><option value="B">線Bを選択</option><option value="start">始点を指定</option><option value="end">終点を指定</option><option value="cornerstart">始点の隣辺を選択</option><option value="cornerend">終点の隣辺を選択</option></select></label>
@@ -28,7 +28,7 @@
   <aside aria-label="編集設定">
     <section class="card import" id="sourceSettings">
       <h2><span class="step">01</span> 型紙を用意</h2>
-      <p class="intro">同じ型紙の2辺も、別々の型紙も。</p>
+      <label class="file batch-upload">SVGをまとめて追加<input id="batchFiles" type="file" multiple accept=".svg,image/svg+xml"></label><p class="hint">複数選択・追加読込できます。パーツは外周ごとに自動判定します。</p><div id="librarySummary"></div><details id="partLibrary" open><summary>パーツ一覧</summary><div id="partCards"></div></details><details id="sourceFiles" open><summary>SVGごとの寸法とファイル</summary>
       <div class="source-card">
         <label class="file">型紙1<input id="file" type="file" accept=".svg,image/svg+xml"></label>
         <p id="firstSourceName" class="filename">原本サンプル</p>
@@ -42,7 +42,7 @@
         <label class="file">型紙3<input id="file3" type="file" accept=".svg,image/svg+xml"></label>
         <div id="thirdSource" hidden><p id="thirdSourceName" class="filename"></p><label class="dimension">型紙3の横幅 <span>mm</span><input id="width3" type="number" value="210" min="1" max="10000" step="0.1"></label><button id="removeThird" class="quiet" disabled>型紙3を外す</button></div>
       </div></details>
-      <div class="source-footer"><button id="sample" class="quiet">サンプルを使う</button><span class="hint">SVGは端末内で処理</span></div>
+      <div id="extraSources"></div></details><div class="source-footer"><button id="sample" class="quiet">サンプルを使う</button><span class="hint">SVGは端末内で処理</span></div>
       <details class="help"><summary>横幅・実寸について</summary><p class="hint">横幅はSVG全体の実寸です。210mmは仮の値なので、各型紙の寸法を確認してください。印刷は100%。補正横幅＝現在の横幅×希望寸法÷測った寸法。</p></details>
     </section>
     <section class="card" id="seamSettings">
@@ -61,12 +61,12 @@
       <h2><span class="step">04</span> 確認して保存</h2>
       <button id="fixSet" class="primary" disabled>この配置を固定して残す</button><p id="fixedSummary" class="hint"></p><div id="fixedList"></div><div id="stats"></div><p id="warning" role="alert"></p>
       <label>保存する型紙<select id="exportSource" disabled><option value="0">型紙1</option><option value="1">型紙2</option><option value="2">型紙3</option></select></label>
-      <button id="save" class="primary" disabled>針穴入りSVGを保存</button><button id="share" class="secondary" disabled>ファイルを共有</button>
+      <button id="save" class="primary" disabled>針穴入りSVGを保存</button><button id="saveAll" disabled>全SVGをまとめて保存（ZIP）</button><button id="share" class="secondary" disabled>ファイルを共有</button>
       <p class="hint">固定した配置と編集中の有効な配置をまとめて保存します。固定は再読み込みで消えるため、最後にSVGを保存してください。型紙ごとに保存できます。裁断前に寸法・向き・穴位置を確認してください。</p>
     </section>
   </aside>
 </main>
 <noscript>JavaScriptが動作していません。SafariでWebページを開いてください。</noscript>
-<script type="module" src="app/main.js?v=fixed-sets-1"></script>
+<script type="module" src="app/main.js?v=parts-library-1"></script>
 </body>
 </html>
