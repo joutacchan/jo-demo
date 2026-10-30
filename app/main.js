@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,tangent,evaluate} from './geometry.js?v=svg-import-status-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,tangent,evaluate} from './geometry.js?v=svg-affine-circle-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -210,15 +210,31 @@ function validateDocument(doc){
  const root=doc.documentElement;
  // Keep accepted documents unchanged. Reject active/external content instead of silently altering it.
  for(const e of root.querySelectorAll('*')){
-  if(!['g','path','title','desc','metadata'].includes(e.localName))throw Error('対応する要素はpathとgです。図形や円弧をパスに変換してください。');
+  if(!['g','path','circle','title','desc','metadata'].includes(e.localName))throw Error('対応する要素はpathとgです。図形や円弧をパスに変換してください。');
  }
  for(const e of [root,...root.querySelectorAll('*')])for(const a of e.attributes){
   if(/^on/i.test(a.name)||/href$/i.test(a.name)||/url\s*\(|@import|expression\s*\(/i.test(a.value))throw Error('スクリプトや外部参照を含むSVGは読み込めません。');
-  if(a.name==='transform'||a.name==='style'&&/transform|display\s*:|visibility\s*:|clip-path|mask|filter/i.test(a.value))throw Error('変換・非表示・クリップ指定を適用してからSVGを書き出してください。');
+  if(a.name==='style'&&/transform|display\s*:|visibility\s*:|clip-path|mask|filter/i.test(a.value))throw Error('変換・非表示・クリップ指定を適用してからSVGを書き出してください。');
  }
  const box=(root.getAttribute('viewBox')||'').trim().split(/[\s,]+/).map(Number);
  if(box.length!==4||box.some(v=>!Number.isFinite(v))||box[2]<=0||box[3]<=0)throw Error('有効なviewBoxが必要です。');
- const paths=[...root.querySelectorAll('path')].flatMap(el=>parsePath(el.getAttribute('d')||'')).flatMap(splitSharpPath);
+ const paths=[...root.querySelectorAll('path,circle')].flatMap(el=>{
+  let matrix=new DOMMatrix();const chain=[];for(let e=el;e;e=e.parentElement){chain.unshift(e);if(e===root)break;}
+  for(const e of chain)if(e.hasAttribute('transform')){
+   const probe=document.createElementNS(NS,'g');probe.setAttribute('transform',e.getAttribute('transform'));
+   const t=probe.transform.baseVal.consolidate();if(!t)throw Error('SVGの変換指定を解析できません。');matrix=matrix.multiply(t.matrix);
+  }
+  if(![matrix.a,matrix.b,matrix.c,matrix.d,matrix.e,matrix.f].every(Number.isFinite)||Math.abs(matrix.a*matrix.d-matrix.b*matrix.c)<1e-12)throw Error('SVGの変換が不正または線を潰しています。');
+  let parsed;
+  if(el.localName==='circle'){
+   const value=(name,fallback)=>{const raw=el.getAttribute(name)??fallback;if(!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(raw.trim()))throw Error('円の座標と半径は数値で指定してください。');return +raw;};
+   const x=value('cx','0'),y=value('cy','0'),r=value('r','0'),k=.5522847498307936;
+   if(r<=0)throw Error('円の半径は0より大きくしてください。');
+   parsed=parsePath(`M${x+r} ${y} C${x+r} ${y+k*r} ${x+k*r} ${y+r} ${x} ${y+r} C${x-k*r} ${y+r} ${x-r} ${y+k*r} ${x-r} ${y} C${x-r} ${y-k*r} ${x-k*r} ${y-r} ${x} ${y-r} C${x+k*r} ${y-r} ${x+r} ${y-k*r} ${x+r} ${y} Z`);
+  }else parsed=parsePath(el.getAttribute('d')||'');
+  const map=p=>({x:matrix.a*p.x+matrix.c*p.y+matrix.e,y:matrix.b*p.x+matrix.d*p.y+matrix.f});
+  return parsed.map(p=>({...p,start:map(p.start),segments:p.segments.map(c=>c.map(map))}));
+ }).flatMap(splitSharpPath);
  if(paths.length<1||paths.length>1000)throw Error('1〜1000本のサブパスを含むSVGを指定してください。');
  return {box,paths};
 }
