@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined} from './geometry.js?v=joined-inset-2';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined} from './geometry.js?v=wall-ends-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:['A','B'];
@@ -12,7 +12,7 @@ for(const name of lineNames){
   const controls=document.createElement('div');controls.className='grid';
   controls.innerHTML=`<label>${end==='start'?'始点':'終点'}の角を揃える<select id="corner${end}${name}"><option value="">揃えない</option></select></label><label>隣の辺のオフセット方向<select id="cornerSide${end}${name}"><option value="auto">内側（自動）</option><option value="1">隣の辺の右（手動）</option><option value="-1">隣の辺の左</option></select></label>`;
   const inset=document.createElement('div');inset.className='grid inset-controls';
-  inset.innerHTML=`<label>${end==='start'?'始点':'終点'}の控え<select id="insetMode${end}${name}"><option value="offset" ${end==='end'?'selected':''}>壁に接する時はオフセットと同じ</option><option value="manual">数値で指定</option><option value="off" ${end==='start'?'selected':''}>控えない</option></select></label><label>控え量 mm<input id="inset${end}${name}" type="number" min="0" max="100" step="0.1" value="3" disabled></label>`;
+  inset.innerHTML=`<label>${end==='start'?'始点':'終点'}の控え<select id="insetMode${end}${name}"><option value="offset" selected>壁に接する時はオフセットと同じ</option><option value="manual">数値で指定</option><option value="off">控えない</option></select></label><label>控え量 mm<input id="inset${end}${name}" type="number" min="0" max="100" step="0.1" value="3" disabled></label>`;
   for(const id of ['insetMode'+end+name,'inset'+end+name])inset.querySelector('#'+id).addEventListener('input',schedule);
   div.append(inset);
   const pick=document.createElement('button');pick.id='pickCorner'+end+name;pick.className='pick-corner';pick.textContent=`${end==='start'?'始点':'終点'}の隣の辺を図で選ぶ`;
@@ -22,7 +22,7 @@ for(const name of lineNames){
   controls.append(autoPick,pick);div.append(controls);
   for(const id of ['corner'+end+name,'cornerSide'+end+name])controls.querySelector('#'+id).onchange=schedule;
  }
- const help=document.createElement('p');help.className='hint';help.textContent='終点は壁に接する場合だけ、穴中心をオフセットと同じ距離だけ壁から離します。始点は初期状態では控えません。数値指定で控え量を変更できます。壁のない端では縫い線に沿って指定mmだけ控えます。角合わせは詳細から指定できます。';div.append(help);
+ const help=document.createElement('p');help.className='hint';help.textContent='始点・終点とも、壁に接する場合だけ穴中心をオフセットと同じ距離だけ壁から離します。壁に接しない端は元の位置を保ちます。選択した縫い合わせる辺同士は壁に含めません。数値指定で控え量を変更できます。壁のない端では縫い線に沿って指定mmだけ控えます。角合わせは詳細から指定できます。';div.append(help);
  const advanced=document.createElement('details');advanced.className='line-details';
  const summary=document.createElement('summary');summary.textContent='端点・控え量・オフセット';advanced.append(summary);
  for(const child of [...div.children].slice(2))advanced.append(child);
@@ -38,7 +38,7 @@ for(const name of lineNames){
   $(id).oninput=e=>{$('range'+end+name).value=e.target.value;schedule();};
  }
  $('reverse'+name).onclick=()=>{for(const prefix of ['insetMode','inset']){const a=$(prefix+'start'+name),b=$(prefix+'end'+name);[a.value,b.value]=[b.value,a.value];}const a=$('start'+name),b=$('end'+name);[a.value,b.value]=[b.value,a.value];syncRanges(name);calculate();};
- $('path'+name).onchange=()=>{for(const endpoint of ['start','end'])$('corner'+endpoint+name).value='';$('start'+name).value=0;$('end'+name).value=100;syncRanges(name);calculate();};
+ $('path'+name).onchange=()=>{for(const endpoint of ['start','end']){$('corner'+endpoint+name).value='';$('insetMode'+endpoint+name).value='offset';}$('start'+name).value=0;$('end'+name).value=100;syncRanges(name);calculate();};
 }
 function syncRanges(name){$('rangeStart'+name).value=$('start'+name).value;$('rangeEnd'+name).value=$('end'+name).value;}
 function number(id,min,max){const el=$(id),n=el.valueAsNumber;if(!Number.isFinite(n)||n<min||n>max)throw Error(`${el.parentElement.textContent.trim()}：${min}〜${max}の数値を入力してください。`);return n;}
@@ -147,7 +147,7 @@ function recalculate(){
     corners[endpoint]=offsetLine(state.cache.get(neighborKey),0,1,offset*units,resolveSide($('cornerSide'+endpoint+name).value,neighbor));
    }
    if(corners.start||corners.end)line=alignCorners(line,corners);
-   const allWalls=state.paths.flatMap((p,i)=>{if(i===idx||state.pathSources[i]!==state.pathSources[idx])return [];const k=i+':'+units;if(!state.cache.has(k))state.cache.set(k,prepare(p,units));return [{index:i,prepared:state.cache.get(k)}];});
+   const allWalls=state.paths.flatMap((p,i)=>{if(i===idx||state.pathSources[i]!==state.pathSources[idx]||activeNames().some(n=>n!==name&&+$('path'+n).value===i))return [];const k=i+':'+units;if(!state.cache.has(k))state.cache.set(k,prepare(p,units));return [{index:i,prepared:state.cache.get(k)}];});
    const insets={};
    for(const endpoint of ['start','end']){
     if($('corner'+endpoint+name).value!=='')continue;
@@ -250,7 +250,7 @@ function populateChoices(){
 }
 function resetLine(name,index){
  $('path'+name).value=index;$('side'+name).value='auto';$('start'+name).value=0;$('end'+name).value=100;
- for(const end of ['start','end']){$('insetMode'+end+name).value=end==='end'?'offset':'off';$('corner'+end+name).value='';$('cornerSide'+end+name).value='auto';}syncRanges(name);
+ for(const end of ['start','end']){$('insetMode'+end+name).value='offset';$('corner'+end+name).value='';$('cornerSide'+end+name).value='auto';}syncRanges(name);
 }
 function savedLineValues(){return fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value]);}
 function restoreLineValues(values){for(const [id,value] of values)if(/^(path|side|start|end|corner|snap|offset|inset)/.test(id)){const e=$(id);if(e.type==='checkbox')e.checked=value;else e.value=value;}}
