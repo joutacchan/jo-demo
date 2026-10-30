@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>針穴配置ツール</title>
-  <link rel="stylesheet" href="app/style.css?v=svg-affine-circle-1">
+  <link rel="stylesheet" href="app/style.css?v=rotate-order-1">
 </head>
 <body>
 <header>
@@ -22,7 +22,7 @@
       <button id="minus" aria-label="縮小">−</button><button id="plus" aria-label="拡大">＋</button><button id="fit">全体</button>
     </div>
     <p class="hint" id="modeHint">ドラッグで移動、2本指でズーム。</p>
-    <div id="stage" tabindex="-1"><svg id="canvas" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2480 3505" preserveAspectRatio="xMidYMid meet"><g id="drawing"></g><g id="neighbors" pointer-events="none"></g><g id="guides"></g><g id="holes"></g><g id="markers"></g></svg></div>
+    <div id="stage" tabindex="-1"><div class="view-tools"><button id="rotateLeft" aria-label="表示を左へ90度回転">↶ 90°</button><button id="rotateRight" aria-label="表示を右へ90度回転">↷ 90°</button><span id="rotationLabel">表示 0°</span></div><svg id="canvas" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2480 3505" preserveAspectRatio="xMidYMid meet"><g id="camera"><g id="drawing"></g><g id="neighbors" pointer-events="none"></g><g id="guides"></g><g id="holes"></g><g id="markers"></g></g></svg></div>
     <p id="message" role="status" aria-live="polite"></p>
   </section>
   <aside aria-label="編集設定">
@@ -67,6 +67,6 @@
   </aside>
 </main>
 <noscript>JavaScriptが動作していません。SafariでWebページを開いてください。</noscript>
-<script type="module" src="app/main.js?v=svg-affine-circle-1"></script>
+<script type="module" src="app/main.js?v=rotate-order-1"></script>
 </body>
 </html>

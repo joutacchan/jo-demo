@@ -1,9 +1,9 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,tangent,evaluate} from './geometry.js?v=svg-affine-circle-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,tangent,evaluate} from './geometry.js?v=rotate-order-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
 let sourceSequence=0;
-const state={fixed:[],committedSignature:null,completed:[],sources:[],pathSources:[],doc:null,paths:[],view:[0,0,2480,3505],base:[0,0,2480,3505],latest:null,cache:new Map(),calculations:0};
+const state={rotation:0,partOrder:[],fixed:[],committedSignature:null,completed:[],sources:[],pathSources:[],doc:null,paths:[],view:[0,0,2480,3505],base:[0,0,2480,3505],latest:null,cache:new Map(),calculations:0};
 const node=(name,attrs,parent)=>{const e=document.createElementNS(NS,name);for(const [k,v] of Object.entries(attrs))e.setAttribute(k,v);parent?.append(e);return e;};
 const message=text=>$('message').textContent=text;
 for(const name of lineNames){
@@ -48,7 +48,7 @@ for(const id of ['width','width2','width3','seamMode','split','diameter','count'
 // History stores editor values and immutable source text, never generated hole SVG.
 const history=[],future=[];let previous=null,restoring=false,editGroup=null,groupRecorded=false;
 const fields=()=>[...document.querySelectorAll('aside input[id],aside select[id]')].filter(e=>e.type!=='file'&&e.type!=='range'&&e.id!=='exportSource');
-function snapshot(){return {source:state.sourceText,name:state.sourceLabel,sources:state.sources.map(s=>({text:s.text,name:s.name,width:s.width,id:s.id})),fixed:[...state.fixed],completed:[...state.completed],committedSignature:state.committedSignature,view:[...state.view],values:fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value])};}
+function snapshot(){return {rotation:state.rotation,partOrder:[...state.partOrder],source:state.sourceText,name:state.sourceLabel,sources:state.sources.map(s=>({text:s.text,name:s.name,width:s.width,id:s.id})),fixed:[...state.fixed],completed:[...state.completed],committedSignature:state.committedSignature,view:[...state.view],values:fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value])};}
 function same(a,b){return JSON.stringify(a)===JSON.stringify(b);}
 function checkpoint(){
  if(restoring||!state.doc)return;
@@ -86,7 +86,7 @@ function restoreHistory(from,to,text){
   state.fixed=[...(saved.fixed||[])];state.completed=[...(saved.completed||[])];state.committedSignature=saved.committedSignature;
   for(const [id,value] of saved.values){const e=$(id);if(e.type==='checkbox')e.checked=value;else e.value=value;}
   for(const name of lineNames)syncRanges(name);
-  state.view=[...saved.view];applyView();recalculate();
+  state.rotation=saved.rotation||0;state.partOrder=[...(saved.partOrder||[])];state.view=[...saved.view];applyView();recalculate();
  }finally{restoring=false;editGroup=null;groupRecorded=false;previous=snapshot();updateHistoryButtons();}
  message(text);
 }
@@ -270,20 +270,20 @@ function detectParts(paths,units){
 }
 function focusPart(source,part){
  const pad=8*source.scale*source.box[2]/source.width;
- state.view=[part.box[0]*source.scale+source.tx-pad,part.box[1]*source.scale+source.ty-pad,Math.max(part.box[2]*source.scale,source.scale)+2*pad,Math.max(part.box[3]*source.scale,source.scale)+2*pad];applyView();
+ state.view=rotatedBox([part.box[0]*source.scale+source.tx-pad,part.box[1]*source.scale+source.ty-pad,Math.max(part.box[2]*source.scale,source.scale)+2*pad,Math.max(part.box[3]*source.scale,source.scale)+2*pad]);applyView();
 }
 function renderLibrary(){
  if(!$('partCards'))return;const container=$('partCards'),scrollTop=container.scrollTop;container.replaceChildren();let total=0;
  state.sources.forEach((source,si)=>source.parts.forEach((part,pi)=>{
   total++;const key=source.id+':'+pi,done=state.completed.includes(key),count=state.fixed.filter(g=>g.rows.some(r=>r.sourceId===source.id&&r.partIndex===pi)).length;
-  const card=document.createElement('div');card.className='part-card'+(done?' complete':'');const show=document.createElement('button');show.className='part-show';
+  const card=document.createElement('div');card.dataset.key=key;card.className='part-card'+(done?' complete':'');const show=document.createElement('button');show.className='part-show';
   const svg=node('svg',{viewBox:[part.box[0]-2,part.box[1]-2,Math.max(1,part.box[2])+4,Math.max(1,part.box[3])+4].join(' '),'aria-hidden':'true'});
   for(const index of part.indices)node('path',{d:pathD(source.paths[index]),fill:'none',stroke:'#304a3b','stroke-width':1,'vector-effect':'non-scaling-stroke'},svg);
   show.append(svg,document.createTextNode(`型紙${si+1}・パーツ${pi+1}　${done?'完了':count?count+'配置済み':'未配置'}`));
   show.onclick=()=>{focusPart(source,part);checkpoint();message(`型紙${si+1}・パーツ${pi+1}を表示。1辺モードまたは組み合わせモードで辺をタップしてください。`);};
-  const complete=document.createElement('button');complete.textContent=done?'完了を戻す':'完了にする';complete.onclick=()=>{state.completed=done?state.completed.filter(v=>v!==key):[...state.completed,key];calculate();};card.append(show,complete);container.append(card);
+  const complete=document.createElement('button');complete.textContent=done?'完了を戻す':'完了にする';complete.onclick=()=>{state.completed=done?state.completed.filter(v=>v!==key):[...state.completed,key];calculate();};card.append(show,complete);for(const [label,step] of [['↑ 前へ',-1],['↓ 後へ',1]]){const b=document.createElement('button');b.textContent=label;b.className='part-reorder';b.onclick=()=>{const keys=[...container.children].map(c=>c.dataset.key),i=keys.indexOf(key),j=i+step;if(j<0||j>=keys.length)return;[keys[i],keys[j]]=[keys[j],keys[i]];state.partOrder=keys;checkpoint();renderLibrary();};card.append(b);}container.append(card);
  }));
- container.scrollTop=scrollTop;
+ const cards=[...container.children],rank=key=>{const i=state.partOrder.indexOf(key);return i<0?state.partOrder.length+cards.findIndex(c=>c.dataset.key===key):i;};cards.sort((a,b)=>rank(a.dataset.key)-rank(b.dataset.key)).forEach(c=>container.append(c));[...container.children].forEach((c,i)=>{c.querySelectorAll('.part-reorder')[0].disabled=i===0;c.querySelectorAll('.part-reorder')[1].disabled=i===container.children.length-1;});container.scrollTop=scrollTop;
  $('librarySummary').textContent=`${state.sources.length} SVG ／ ${total}パーツ ／ ${state.completed.length}パーツ完了`;
 }
 let sourceRequest=0;
@@ -339,7 +339,7 @@ function rebuildScene(force=false){
   right+=source.box[2]*source.scale+(i<state.sources.length-1?20*units:0);height=Math.max(height,source.box[3]*source.scale);
  });
  state.base=[first.box[0],first.box[1],right-first.box[0],height];
- if(force){state.view=[...state.base];applyView();}
+ if(force){state.view=rotatedBox(state.base);applyView();}
  $('sourceName').textContent=state.sources.map((s,i)=>`型紙${i+1}：${s.name}`).join(' ／ ');
  $('firstSourceName').textContent=state.sources[0].name;
  $('secondSourceName').textContent=state.sources[1]?.name||'';
@@ -410,15 +410,18 @@ function updateMarkerScale(){
  const scale=Math.hypot(ctm.a,ctm.b);if(!Number.isFinite(scale)||scale<=0)return;
  for(const marker of $('markers').children)marker.setAttribute('transform',`translate(${marker.dataset.x} ${marker.dataset.y}) scale(${1/scale})`);
 }
-function applyView(){$('canvas').setAttribute('viewBox',state.view.join(' '));updateMarkerScale();}
+function applyView(){$('camera').setAttribute('transform',`rotate(${state.rotation})`);$('rotationLabel').textContent=`表示 ${state.rotation}°`;$('canvas').setAttribute('viewBox',state.view.join(' '));updateMarkerScale();}
 new ResizeObserver(updateMarkerScale).observe($('canvas'));
-function local(x,y){return new DOMPoint(x,y).matrixTransform($('canvas').getScreenCTM().inverse());}
+function viewLocal(x,y){return new DOMPoint(x,y).matrixTransform($('canvas').getScreenCTM().inverse());}
+function local(x,y){return new DOMPoint(x,y).matrixTransform($('camera').getScreenCTM().inverse());}
+function rotatedBox(box,angle=state.rotation){const m=new DOMMatrix().rotate(angle),[x,y,w,h]=box,ps=[[x,y],[x+w,y],[x,y+h],[x+w,y+h]].map(([a,b])=>new DOMPoint(a,b).matrixTransform(m));const xs=ps.map(p=>p.x),ys=ps.map(p=>p.y);return [Math.min(...xs),Math.min(...ys),Math.max(...xs)-Math.min(...xs),Math.max(...ys)-Math.min(...ys)];}
+for(const [id,delta] of [['rotateLeft',-90],['rotateRight',90]])$(id).onclick=()=>{state.rotation=(state.rotation+delta+360)%360;state.view=rotatedBox(state.view,delta);applyView();checkpoint();};
 function zoom(factor,x,y){
- const before=local(x,y),v=state.view,w=Math.max(state.base[2]/40,Math.min(state.base[2]*4,v[2]/factor)),ratio=w/v[2];
+ const before=viewLocal(x,y),v=state.view,w=Math.max(state.base[2]/40,Math.min(state.base[2]*4,v[2]/factor)),ratio=w/v[2];
  state.view=[before.x+(v[0]-before.x)*ratio,before.y+(v[1]-before.y)*ratio,w,v[3]*ratio];applyView();
 }
 for(const [id,f] of [['plus',1.4],['minus',1/1.4]])$(id).onclick=()=>{const r=$('canvas').getBoundingClientRect();zoom(f,r.x+r.width/2,r.y+r.height/2);checkpoint();};
-$('fit').onclick=()=>{state.view=[...state.base];applyView();checkpoint();};
+$('fit').onclick=()=>{state.view=rotatedBox(state.base);applyView();checkpoint();};
 $('mode').onchange=()=>{renderCornerSelections();$('modeHint').textContent=`現在のモード：${$('mode').selectedOptions[0].textContent} ／ 編集対象：${$('active').value}。ドラッグで上下左右に移動、2本指で拡大・移動。タップで選択・端点指定。`};$('active').onchange=$('mode').onchange;
 function renderCornerSelections(){
  const group=$('neighbors');group.replaceChildren();if(!state.doc)return;
@@ -443,19 +446,20 @@ function hit(x,y){
  else if(lineNames.includes(mode)){$('path'+mode).value=best.index;$('path'+mode).onchange();$('active').value=mode;message($('warning').textContent||`線${mode}にカット線${best.index+1}を選びました。`);}
  else{const name=$('active').value;$(mode+name).value=best.percent.toFixed(1);syncRanges(name);calculate();message(`線${name}の${mode==='start'?'始点':'終点'}を変更しました。`);}
 }
+document.querySelector('.view-tools').addEventListener('pointerdown',e=>e.stopPropagation());
 const pointers=new Map();let gesture=null,multi=false;
 const pinch=()=>{const a=[...pointers.values()];return a.length<2?null:{x:(a[0].x+a[1].x)/2,y:(a[0].y+a[1].y)/2,d:Math.max(1,Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y))};};
-$('stage').onpointerdown=e=>{if(e.pointerType==='mouse'&&e.button!==0)return;$('stage').setPointerCapture(e.pointerId);pointers.set(e.pointerId,{x:e.clientX,y:e.clientY,sx:e.clientX,sy:e.clientY,moved:false});if(pointers.size===2){multi=true;const g=pinch();gesture={...g,view:[...state.view],anchor:local(g.x,g.y)};}};
+$('stage').onpointerdown=e=>{if(e.pointerType==='mouse'&&e.button!==0)return;$('stage').setPointerCapture(e.pointerId);pointers.set(e.pointerId,{x:e.clientX,y:e.clientY,sx:e.clientX,sy:e.clientY,moved:false});if(pointers.size===2){multi=true;const g=pinch();gesture={...g,view:[...state.view],anchor:viewLocal(g.x,g.y)};}};
 $('stage').onpointermove=e=>{
- const p=pointers.get(e.pointerId);if(!p)return;const before=local(p.x,p.y);p.x=e.clientX;p.y=e.clientY;p.moved ||=Math.hypot(p.x-p.sx,p.y-p.sy)>6;
+ const p=pointers.get(e.pointerId);if(!p)return;const before=viewLocal(p.x,p.y);p.x=e.clientX;p.y=e.clientY;p.moved ||=Math.hypot(p.x-p.sx,p.y-p.sy)>6;
  if(pointers.size>1){const next=pinch();if(gesture){
   const width=Math.max(state.base[2]/40,Math.min(state.base[2]*4,gesture.view[2]*gesture.d/next.d)),ratio=width/gesture.view[2];
   state.view=[gesture.anchor.x+(gesture.view[0]-gesture.anchor.x)*ratio,gesture.anchor.y+(gesture.view[1]-gesture.anchor.y)*ratio,width,gesture.view[3]*ratio];applyView();
-  const now=local(next.x,next.y);state.view[0]+=gesture.anchor.x-now.x;state.view[1]+=gesture.anchor.y-now.y;applyView();
+  const now=viewLocal(next.x,next.y);state.view[0]+=gesture.anchor.x-now.x;state.view[1]+=gesture.anchor.y-now.y;applyView();
  }}
- else if(p.moved){const now=local(p.x,p.y);state.view[0]+=before.x-now.x;state.view[1]+=before.y-now.y;applyView();}
+ else if(p.moved){const now=viewLocal(p.x,p.y);state.view[0]+=before.x-now.x;state.view[1]+=before.y-now.y;applyView();}
 };
-function endPointer(e,cancel=false){const p=pointers.get(e.pointerId);if(!p)return;if(!cancel&&!multi&&!p.moved)try{hit(e.clientX,e.clientY);}catch(err){message(err.message);}pointers.delete(e.pointerId);gesture=null;if(pointers.size>=2){const g=pinch();gesture={...g,view:[...state.view],anchor:local(g.x,g.y)};}for(const remaining of pointers.values()){remaining.sx=remaining.x;remaining.sy=remaining.y;if(multi)remaining.moved=true;}if(!pointers.size){multi=false;checkpoint();}}
+function endPointer(e,cancel=false){const p=pointers.get(e.pointerId);if(!p)return;if(!cancel&&!multi&&!p.moved)try{hit(e.clientX,e.clientY);}catch(err){message(err.message);}pointers.delete(e.pointerId);gesture=null;if(pointers.size>=2){const g=pinch();gesture={...g,view:[...state.view],anchor:viewLocal(g.x,g.y)};}for(const remaining of pointers.values()){remaining.sx=remaining.x;remaining.sy=remaining.y;if(multi)remaining.moved=true;}if(!pointers.size){multi=false;checkpoint();}}
 $('stage').onpointerup=e=>endPointer(e);$('stage').onpointercancel=e=>endPointer(e,true);$('stage').onlostpointercapture=e=>endPointer(e,true);
 export function exportSVG(sourceIndex=0){
  if(!state.latest&&!state.fixed.length)throw Error('条件を満たす配置を作成してください。');
@@ -472,7 +476,7 @@ export function exportSVG(sourceIndex=0){
 function draftSignature(){return JSON.stringify({sources:state.sources.map(s=>s.id),values:fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value])});}
 function renderFixed(){
  renderLibrary();
- let layer=$('fixedHoles');if(!layer){layer=node('g',{id:'fixedHoles','pointer-events':'none'},$('canvas'));$('canvas').insertBefore(layer,$('holes'));}layer.replaceChildren();
+ let layer=$('fixedHoles');if(!layer){layer=node('g',{id:'fixedHoles','pointer-events':'none'},$('camera'));$('camera').insertBefore(layer,$('holes'));}layer.replaceChildren();
  $('fixedList').replaceChildren();$('fixedSummary').textContent=state.fixed.length?`${state.fixed.length}件の配置を固定済み。次の辺を選んで続けられます。`:'配置を固定すると、次の編集をしても針穴が残ります。';
  state.sources.forEach((s,i)=>{const locked=state.fixed.some(g=>g.rows.some(r=>r.sourceId===s.id));$(i?'width'+(i+1):'width').disabled=locked;if($(i?'file'+(i+1):'file'))$(i?'file'+(i+1):'file').disabled=locked;if(i===0)$('sample').disabled=locked;});
  state.fixed.forEach((set,index)=>{
