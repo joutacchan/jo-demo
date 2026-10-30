@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,tangent,evaluate} from './geometry.js?v=rotate-order-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,tangent,evaluate} from './geometry.js?v=large-editor-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -447,6 +447,10 @@ function hit(x,y){
  else{const name=$('active').value;$(mode+name).value=best.percent.toFixed(1);syncRanges(name);calculate();message(`線${name}の${mode==='start'?'始点':'終点'}を変更しました。`);}
 }
 document.querySelector('.view-tools').addEventListener('pointerdown',e=>e.stopPropagation());
+$('expandView').addEventListener('pointerdown',e=>e.stopPropagation());
+function expandView(expanded){document.body.classList.toggle('expanded-view',expanded);$('expandView').textContent=expanded?'設定に戻る':'図を広げる';$('expandView').setAttribute('aria-pressed',String(expanded));document.querySelector('aside').inert=expanded;}
+$('expandView').onclick=()=>expandView(!document.body.classList.contains('expanded-view'));
+document.addEventListener('keydown',e=>{if(e.key==='Escape')expandView(false);});
 const pointers=new Map();let gesture=null,multi=false;
 const pinch=()=>{const a=[...pointers.values()];return a.length<2?null:{x:(a[0].x+a[1].x)/2,y:(a[0].y+a[1].y)/2,d:Math.max(1,Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y))};};
 $('stage').onpointerdown=e=>{if(e.pointerType==='mouse'&&e.button!==0)return;$('stage').setPointerCapture(e.pointerId);pointers.set(e.pointerId,{x:e.clientX,y:e.clientY,sx:e.clientX,sy:e.clientY,moved:false});if(pointers.size===2){multi=true;const g=pinch();gesture={...g,view:[...state.view],anchor:viewLocal(g.x,g.y)};}};
