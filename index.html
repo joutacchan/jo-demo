@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>針穴配置ツール</title>
-  <link rel="stylesheet" href="app/style.css?v=same-line-sides-1">
+  <link rel="stylesheet" href="app/style.css?v=svg-import-status-1">
 </head>
 <body>
 <header>
@@ -28,7 +28,7 @@
   <aside aria-label="編集設定">
     <section class="card import" id="sourceSettings">
       <h2><span class="step">01</span> 型紙を用意</h2>
-      <label class="file batch-upload">SVGをまとめて追加<input id="batchFiles" type="file" multiple accept=".svg,image/svg+xml"></label><p class="hint">複数選択・追加読込できます。パーツは外周ごとに自動判定します。</p><div id="librarySummary"></div><details id="partLibrary" open><summary>パーツ一覧</summary><div id="partCards"></div></details><details id="sourceFiles" open><summary>SVGごとの寸法とファイル</summary>
+      <label class="file batch-upload">SVGをまとめて追加<input id="batchFiles" type="file" multiple accept=".svg,image/svg+xml"></label><p class="hint">複数選択・追加読込できます。パーツは外周ごとに自動判定します。</p><p id="importStatus" role="status" aria-live="polite" hidden></p><div id="librarySummary"></div><details id="partLibrary" open><summary>パーツ一覧</summary><div id="partCards"></div></details><details id="sourceFiles" open><summary>SVGごとの寸法とファイル</summary>
       <div class="source-card">
         <label class="file">型紙1<input id="file" type="file" accept=".svg,image/svg+xml"></label>
         <p id="firstSourceName" class="filename">原本サンプル</p>
@@ -67,6 +67,6 @@
   </aside>
 </main>
 <noscript>JavaScriptが動作していません。SafariでWebページを開いてください。</noscript>
-<script type="module" src="app/main.js?v=same-line-sides-1"></script>
+<script type="module" src="app/main.js?v=svg-import-status-1"></script>
 </body>
 </html>

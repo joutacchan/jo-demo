@@ -19,3 +19,5 @@ aside{height:100%;min-height:0;overflow-y:auto;overscroll-behavior-y:contain;-we
 @media(max-height:500px){.preview .heading{display:none}.mode-tabs button{padding:3px 6px;min-height:36px;margin:0}.preview #message{height:1.3em;min-height:1.3em;flex-basis:1.3em}}
 
 #partCards{max-height:300px;overflow:auto;overscroll-behavior:contain}
+
+#importStatus{padding:10px;border:1px solid #b5c7af;border-radius:8px;overflow-wrap:anywhere}#importStatus.import-error{color:#9b2424;background:#fff0ed;border-color:#d49c92}

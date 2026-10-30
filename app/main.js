@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,tangent,evaluate} from './geometry.js?v=same-line-sides-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,tangent,evaluate} from './geometry.js?v=svg-import-status-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -270,15 +270,22 @@ function renderLibrary(){
  container.scrollTop=scrollTop;
  $('librarySummary').textContent=`${state.sources.length} SVG ／ ${total}パーツ ／ ${state.completed.length}パーツ完了`;
 }
+let sourceRequest=0;
+function importStatus(text,error=false){const el=$('importStatus');el.hidden=false;el.textContent=text;el.className=error?'import-error':'hint';message(text);}
+async function readSVGFile(file){
+ if(file.size>2e6)throw Error('SVGは1枚2MB以内にしてください。');
+ if(typeof file.text==='function')return file.text();
+ return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(Error('ファイルを読み取れません。端末の「ファイル」に保存して選び直してください。'));reader.readAsText(file);});
+}
 async function importBatch(files){
  if(!files.length)return;const replaceSample=state.sources.length===1&&state.sources[0].name==='原本サンプル'&&!state.fixed.length;
  if((replaceSample?0:state.sources.length)+files.length>32)throw Error('SVGは32ファイルまで追加できます。');
- const loaded=[];for(const file of files){if(file.size>2e6)throw Error(`${file.name}：1枚2MB以内にしてください。`);const s=readSource(await file.text(),file.name);s.width=suggestedWidth(s)||210;if(s.width<1||s.width>10000||!Number.isFinite(s.width))s.width=210;loaded.push(s);}
+ const loaded=[];for(const file of files){if(file.size>2e6)throw Error(`${file.name}：1枚2MB以内にしてください。`);const s=readSource(await readSVGFile(file),file.name);s.width=suggestedWidth(s)||210;if(s.width<1||s.width>10000||!Number.isFinite(s.width))s.width=210;loaded.push(s);}
  const old=[...state.sources],owners=[...state.pathSources],values=savedLineValues();if(replaceSample){state.sources=[];state.completed=[];}const start=state.sources.length;state.sources.push(...loaded);ensureSourceControls();state.sources.forEach((s,i)=>{if(i>=start)widthControl(i).value=s.width;});
  rebuildScene(true);populateChoices();if(replaceSample){resetLine('A',0);resetLine('B',Math.min(1,state.paths.length-1));resetLine('C',Math.min(2,state.paths.length-1));}else remapSelections(values,owners,old);
  $('sourceFiles').open=false;focusPart(state.sources[start],state.sources[start].parts[0]);calculate();message(`${files.length}個のSVGを追加しました。パーツ一覧の図を押して拡大・編集できます。`);
 }
-$('batchFiles').onchange=async e=>{try{await importBatch([...e.target.files]);}catch(err){message(err.message);}finally{e.target.value='';}};
+$('batchFiles').onchange=async e=>{const files=[...e.target.files];if(!files.length)return;++sourceRequest;importStatus(`${files.length}個のSVGを読込中…`);try{await importBatch(files);importStatus(`${files.map(f=>f.name).join('、')}：読込完了。パーツ一覧から選べます。`);}catch(err){importStatus(`読込できませんでした：${err.message}`,true);}finally{e.target.value='';}};
 function suggestedWidth(source){
  const physical=(source.doc.documentElement.getAttribute('width')||'').match(/^\s*([\d.]+)\s*(mm|cm|in)\s*$/i);
  if(physical)return +physical[1]*({mm:1,cm:10,in:25.4}[physical[2].toLowerCase()]);
@@ -379,9 +386,9 @@ function removeSource(slot){
  calculate();message(`型紙${slot+1}を外しました。↶で元に戻せます。`);
 }
 $('removeSecond').onclick=()=>removeSource(1);$('removeThird').onclick=()=>removeSource(2);
-async function sample(){try{const r=await fetch('assets/source/名称未設定 3.svg');if(!r.ok)throw Error('サンプルを読み込めません。');loadSVG(await r.text(),'原本サンプル');$('boot').textContent='操作の準備ができました';}catch(e){message(e.message);$('boot').textContent='起動に失敗しました。SafariでWebページとして開いてください。';}}
+async function sample(){const request=++sourceRequest;try{const r=await fetch('assets/source/名称未設定 3.svg');if(!r.ok)throw Error('サンプルを読み込めません。');const text=await r.text();if(request!==sourceRequest)return;loadSVG(text,'原本サンプル');$('boot').textContent='操作の準備ができました';}catch(e){if(request!==sourceRequest)return;message(e.message);$('boot').textContent='起動に失敗しました。SafariでWebページとして開いてください。';}}
 $('sample').onclick=sample;
-for(const [id,slot] of [['file',0],['file2',1],['file3',2]])$(id).onchange=async e=>{try{const file=e.target.files[0];if(!file)return;if(file.size>2e6)throw Error('SVGは1枚2MB以内にしてください。');loadSVG(await file.text(),file.name,slot);}catch(err){message(err.message);}finally{e.target.value='';}};
+for(const [id,slot] of [['file',0],['file2',1],['file3',2]])$(id).onchange=async e=>{const file=e.target.files[0];if(!file)return;++sourceRequest;importStatus(`${file.name}：読込中…`);try{loadSVG(await readSVGFile(file),file.name,slot);importStatus(`${file.name}：読込完了。型紙${slot+1}へ反映しました。`);$('boot').textContent='操作の準備ができました';}catch(err){importStatus(`${file.name}：読込できませんでした。${err.message}`,true);}finally{e.target.value='';}};
 function updateMarkerScale(){
  const ctm=$('canvas').getScreenCTM();if(!ctm)return;
  const scale=Math.hypot(ctm.a,ctm.b);if(!Number.isFinite(scale)||scale<=0)return;
