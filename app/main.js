@@ -1,8 +1,9 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,tangent} from './geometry.js?v=selection-pinch-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,tangent} from './geometry.js?v=fixed-sets-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
-const activeNames=()=>$('seamMode').value==='joined'?lineNames:['A','B'];
-const state={sources:[],pathSources:[],doc:null,paths:[],view:[0,0,2480,3505],base:[0,0,2480,3505],latest:null,cache:new Map(),calculations:0};
+const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
+let sourceSequence=0;
+const state={fixed:[],committedSignature:null,sources:[],pathSources:[],doc:null,paths:[],view:[0,0,2480,3505],base:[0,0,2480,3505],latest:null,cache:new Map(),calculations:0};
 const node=(name,attrs,parent)=>{const e=document.createElementNS(NS,name);for(const [k,v] of Object.entries(attrs))e.setAttribute(k,v);parent?.append(e);return e;};
 const message=text=>$('message').textContent=text;
 for(const name of lineNames){
@@ -47,7 +48,7 @@ for(const id of ['width','width2','width3','seamMode','split','diameter','count'
 // History stores editor values and immutable source text, never generated hole SVG.
 const history=[],future=[];let previous=null,restoring=false,editGroup=null,groupRecorded=false;
 const fields=()=>[...document.querySelectorAll('aside input[id],aside select[id]')].filter(e=>e.type!=='file'&&e.type!=='range'&&e.id!=='exportSource');
-function snapshot(){return {source:state.sourceText,name:state.sourceLabel,sources:state.sources.map(s=>({text:s.text,name:s.name,width:s.width})),view:[...state.view],values:fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value])};}
+function snapshot(){return {source:state.sourceText,name:state.sourceLabel,sources:state.sources.map(s=>({text:s.text,name:s.name,width:s.width,id:s.id})),fixed:structuredClone(state.fixed),committedSignature:state.committedSignature,view:[...state.view],values:fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value])};}
 function same(a,b){return JSON.stringify(a)===JSON.stringify(b);}
 function checkpoint(){
  if(restoring||!state.doc)return;
@@ -77,10 +78,12 @@ function restoreHistory(from,to,text){
  to.push(snapshot());if(to.length>100)to.shift();
  restoring=true;
  try{
-  if(!same(saved.sources.map(s=>[s.text,s.name]),state.sources.map(s=>[s.text,s.name]))){
-   for(const [id,value] of saved.values)if(['width','width2','width3'].includes(id))$(id).value=value;
-   state.sources=saved.sources.map(s=>({...readSource(s.text,s.name),width:s.width}));rebuildScene(true);populateChoices();
+  if(!same(saved.sources.map(s=>[s.text,s.name,s.id]),state.sources.map(s=>[s.text,s.name,s.id]))){
+   state.fixed=structuredClone(saved.fixed||[]);state.committedSignature=saved.committedSignature;
+  for(const [id,value] of saved.values)if(['width','width2','width3'].includes(id))$(id).value=value;
+   state.sources=saved.sources.map(s=>({...readSource(s.text,s.name),width:s.width,id:s.id}));rebuildScene(true);populateChoices();
   }
+  state.fixed=structuredClone(saved.fixed||[]);state.committedSignature=saved.committedSignature;
   for(const [id,value] of saved.values){const e=$(id);if(e.type==='checkbox')e.checked=value;else e.value=value;}
   for(const name of lineNames)syncRanges(name);
   state.view=[...saved.view];applyView();recalculate();
@@ -95,10 +98,11 @@ function resolveSide(value,index,reverse=false){
  return state.inside[index]*(reverse?-1:1);
 }
 function recalculate(){
- const joinedMode=$('seamMode').value==='joined';
+ const joinedMode=$('seamMode').value==='joined',singleMode=$('seamMode').value==='single';
+ $('mode').querySelector('option[value=B]').disabled=singleMode;[...$('active').options].find(o=>o.value==='B').disabled=singleMode;if(singleMode&&$('active').value==='B')$('active').value='A';if(singleMode&&$('mode').value==='B')$('mode').value='A';
  let cOption=$('mode').querySelector('option[value=C]');if(!cOption){cOption=new Option('線Cを選択','C');$('mode').append(cOption);$('active').append(new Option('C','C'));}
  cOption.disabled=!joinedMode;$('active').querySelector('option[value=C]').disabled=!joinedMode;if(!joinedMode&&$('active').value==='C')$('active').value='A';if(!joinedMode&&$('mode').value==='C')$('mode').value='pan';
- state.autoWalls={};state.calculations++;state.latest=null;$('save').disabled=$('share').disabled=true;$('warning').textContent='';$('stats').replaceChildren();
+ state.autoWalls={};state.calculations++;state.latest=null;$('fixSet').disabled=true;$('save').disabled=!state.fixed.length;$('share').disabled=!state.fixed.length||!navigator.canShare;renderFixed();$('warning').textContent='';$('stats').replaceChildren();
  for(const id of ['guides','holes','markers'])$(id).replaceChildren();
  for(const name of lineNames){
   document.querySelector(`.line[data-name=${name}]`).hidden=!activeNames().includes(name);
@@ -111,8 +115,9 @@ function recalculate(){
  renderCornerSelections();
  try{
   if(!state.doc)return;
-  const width=number('width',1,10000);for(let i=1;i<state.sources.length;i++)number('width'+(i+1),1,10000);rebuildScene();
-  $('joinedSettings').hidden=$('seamMode').value!=='joined';$('countLabel').textContent=$('seamMode').value==='joined'?'各組の穴数':'片側の穴数';
+  renderFixed();
+  const width=number('width',1,10000);for(let i=1;i<state.sources.length;i++)number('width'+(i+1),1,10000);rebuildScene();renderFixed();
+  $('joinedSettings').hidden=$('seamMode').value!=='joined';$('countLabel').textContent=singleMode?'穴数':joinedMode?'各組の穴数':'片側の穴数';
   const units=state.sources[0].box[2]/width,diameter=number('diameter',.1,10),minPitch=number('pitch',10,1000);
   const auto=$('countMode').value==='auto';
   const count=auto?13:number('count',2,1000);$('count').disabled=auto;
@@ -169,7 +174,8 @@ function recalculate(){
   renderCornerSelections();
   if(cornerErrors.length)throw Error(cornerErrors.join(' ')+' 角合わせできない側は調整前の点線を表示しています。隣辺を選び直すか、↶で戻してください。');
   const joined=$('seamMode').value==='joined';
-  const result=joined?placeJoined(...lines,{split:number('split',.1,99.9)/100,mode:$('countMode').value,count,minPitch}):place(...lines,{mode:$('countMode').value,count,minPitch});
+  const result=joined?placeJoined(...lines,{split:number('split',.1,99.9)/100,mode:$('countMode').value,count,minPitch}):place(lines[0],lines[1]||lines[0],{mode:$('countMode').value,count,minPitch});
+  if($('seamMode').value==='single')result.rows=result.rows.slice(0,1);
   if(auto)$('count').value=joined?result.pairs[0].count:result.count;
   result.rows.forEach((row,j)=>{
    const name=lineNames[j];
@@ -184,7 +190,8 @@ function recalculate(){
   if(joined){const info=document.createElement('p');info.className='hint';info.textContent=`A前半 ↔ B：${result.pairs[0].count}穴 ／ A後半 ↔ C：${result.pairs[1].count}穴。境目は縫い線に沿って${(minPitch+.0001).toFixed(2)}mm空けています。`;$('stats').append(info);const m=node('g',{'data-x':result.boundary.x,'data-y':result.boundary.y},$('markers'));node('text',{x:8,y:20,style:'font-size:14px;stroke-width:3px'},m).textContent='Aの分割';}
   updateMarkerScale();
   $('warning').textContent=result.warning;
-  if(result.valid){state.latest={result,lines,units,width,diameter,rowSources:activeNames().map(n=>state.pathSources[+$('path'+n).value])};$('save').disabled=false;$('share').disabled=!navigator.canShare;}
+  if(result.valid){state.latest={result,lines,units,width,diameter,rowSources:activeNames().map(n=>state.pathSources[+$('path'+n).value])};$('save').disabled=false;$('share').disabled=!navigator.canShare;$('fixSet').disabled=draftSignature()===state.committedSignature;
+   if($('fixSet').disabled){$('holes').replaceChildren();$('markers').replaceChildren();$('guides').replaceChildren();}}
  }catch(e){$('warning').textContent=e.message;}
 }
 // Split only selection geometry at sharp corners; original SVG documents remain untouched.
@@ -217,7 +224,7 @@ function validateDocument(doc){
 function readSource(text,name){
  const doc=new DOMParser().parseFromString(text,'image/svg+xml'),{box,paths}=validateDocument(doc);
  let inside=null,insideError='';try{inside=interiorSides(paths,box[2]/210);}catch(e){insideError=e.message;}
- return {doc,text,name,box,paths,inside,insideError};
+ return {doc,text,name,box,paths,inside,insideError,id:++sourceSequence};
 }
 function rebuildScene(force=false){
  if(!state.sources.length)return;
@@ -280,6 +287,7 @@ function remapSelections(values,oldOwners,oldSources,replaced=-1,removed=-1){
 export function loadSVG(text,name='SVG',slot=0){
  if(!Number.isInteger(slot)||slot<0||slot>2)throw Error('型紙は3枚までです。');
  if(slot>0&&!state.sources[slot-1])throw Error(`先に型紙${slot}を読み込んでください。`);
+ if(state.sources[slot]&&state.fixed.some(g=>g.rows.some(r=>r.sourceId===state.sources[slot].id)))throw Error('この型紙には固定済みの針穴があります。固定を外してから型紙を交換してください。');
  const source=readSource(text,name),oldSources=[...state.sources],oldOwners=[...state.pathSources],values=savedLineValues();
  state.sources[slot]=source;
  const physical=(source.doc.documentElement.getAttribute('width')||'').match(/^\s*([\d.]+)\s*(mm|cm|in)\s*$/i);
@@ -294,6 +302,7 @@ export function loadSVG(text,name='SVG',slot=0){
 export const loadSecondSVG=(text,name='SVG 2')=>loadSVG(text,name,1);
 export const loadThirdSVG=(text,name='SVG 3')=>loadSVG(text,name,2);
 function removeSource(slot){
+ if(state.fixed.some(g=>g.rows.some(r=>r.sourceId===state.sources[slot]?.id))){message('固定済みの針穴を外してから型紙を外してください。');return;}
  const oldSources=[...state.sources],oldOwners=[...state.pathSources],values=savedLineValues();
  state.sources.splice(slot,1);if(slot===1&&state.sources[1])$('width2').value=$('width3').value;
  rebuildScene(true);populateChoices();remapSelections(values,oldOwners,oldSources,-1,slot);
@@ -356,14 +365,32 @@ $('stage').onpointermove=e=>{
 function endPointer(e,cancel=false){const p=pointers.get(e.pointerId);if(!p)return;if(!cancel&&!multi&&!p.moved)try{hit(e.clientX,e.clientY);}catch(err){message(err.message);}pointers.delete(e.pointerId);gesture=null;if(pointers.size>=2){const g=pinch();gesture={...g,view:[...state.view],anchor:local(g.x,g.y)};}for(const remaining of pointers.values()){remaining.sx=remaining.x;remaining.sy=remaining.y;if(multi)remaining.moved=true;}if(!pointers.size){multi=false;checkpoint();}}
 $('stage').onpointerup=e=>endPointer(e);$('stage').onpointercancel=e=>endPointer(e,true);$('stage').onlostpointercapture=e=>endPointer(e,true);
 export function exportSVG(sourceIndex=0){
- if(!state.latest)throw Error('条件を満たす配置を作成してください。');
+ if(!state.latest&&!state.fixed.length)throw Error('条件を満たす配置を作成してください。');
  const source=state.sources[sourceIndex];if(!source)throw Error('保存する型紙を選んでください。');
- const {result,diameter}=state.latest,units=source.box[2]/source.width,width=source.width,doc=source.doc.cloneNode(true),root=doc.documentElement;
+ const units=source.box[2]/source.width,width=source.width,doc=source.doc.cloneNode(true),root=doc.documentElement;
  root.setAttribute('width',width+'mm');root.setAttribute('height',(source.box[3]/units)+'mm');
  const g=doc.createElementNS(NS,'g');let id='stitch_holes',suffix=1;while(root.querySelector(`[id="${id}"]`))id='stitch_holes_'+suffix++;g.setAttribute('id',id);g.setAttribute('fill','none');g.setAttribute('stroke','black');g.setAttribute('stroke-width',.08*units);root.append(g);
- result.rows.forEach((row,j)=>{if(state.latest.rowSources[j]!==sourceIndex)return;row.holes.forEach((p,i)=>{const c=doc.createElementNS(NS,'circle');for(const [k,v] of Object.entries({cx:((p.x-source.tx)/source.scale).toFixed(6),cy:((p.y-source.ty)/source.scale).toFixed(6),r:(diameter*units/2).toFixed(6),'data-hole':`${lineNames[j]}_${String(i+1).padStart(2,'0')}`}))c.setAttribute(k,v);g.append(c);});});
+ const seen=new Set();
+ function appendHole(p,r,label){const key=[p.x.toFixed(6),p.y.toFixed(6),r.toFixed(6)].join(':');if(seen.has(key))return;seen.add(key);const c=doc.createElementNS(NS,'circle');for(const [k,v] of Object.entries({cx:p.x.toFixed(6),cy:p.y.toFixed(6),r:r.toFixed(6),'data-hole':label}))c.setAttribute(k,v);g.append(c);}
+ state.fixed.forEach((set,k)=>set.rows.filter(r=>r.sourceId===source.id).forEach(row=>row.holes.forEach((p,i)=>appendHole(p,row.radius,`S${k+1}_${row.name}_${i+1}`))));
+ if(state.latest&&draftSignature()!==state.committedSignature)state.latest.result.rows.forEach((row,j)=>{if(state.latest.rowSources[j]!==sourceIndex)return;row.holes.forEach((p,i)=>appendHole({x:(p.x-source.tx)/source.scale,y:(p.y-source.ty)/source.scale},state.latest.diameter*units/2,`${lineNames[j]}_${String(i+1).padStart(2,'0')}`));});
  return '<?xml version="1.0" encoding="UTF-8"?>\n'+new XMLSerializer().serializeToString(root);
 }
+function draftSignature(){return JSON.stringify({sources:state.sources.map(s=>s.id),values:fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value])});}
+function renderFixed(){
+ let layer=$('fixedHoles');if(!layer){layer=node('g',{id:'fixedHoles','pointer-events':'none'},$('canvas'));$('canvas').insertBefore(layer,$('holes'));}layer.replaceChildren();
+ $('fixedList').replaceChildren();$('fixedSummary').textContent=state.fixed.length?`${state.fixed.length}件の配置を固定済み。次の辺を選んで続けられます。`:'配置を固定すると、次の編集をしても針穴が残ります。';
+ state.sources.forEach((s,i)=>{const locked=state.fixed.some(g=>g.rows.some(r=>r.sourceId===s.id));$(i?'width'+(i+1):'width').disabled=locked;$(i?'file'+(i+1):'file').disabled=locked;if(i===0)$('sample').disabled=locked;});
+ state.fixed.forEach((set,index)=>{
+  for(const row of set.rows){const source=state.sources.find(s=>s.id===row.sourceId);if(!source)continue;row.holes.forEach(p=>node('circle',{cx:p.x*source.scale+source.tx,cy:p.y*source.scale+source.ty,r:row.radius*source.scale,fill:'#375c48','fill-opacity':.7,stroke:'white','stroke-width':.7,'vector-effect':'non-scaling-stroke'},layer));}
+  const line=document.createElement('div');line.className='result';const label=document.createElement('span');label.textContent=`配置${index+1} · ${set.label} · ${set.rows.map(r=>r.holes.length).join(' / ')}穴 `;const remove=document.createElement('button');remove.textContent='固定を外す';remove.onclick=()=>{state.fixed.splice(index,1);calculate();};line.append(label,remove);$('fixedList').append(line);
+ });
+}
+$('fixSet').onclick=()=>{
+ calculate();if(!state.latest||draftSignature()===state.committedSignature)return;
+ const latest=state.latest;const rows=latest.result.rows.map((row,j)=>{const source=state.sources[latest.rowSources[j]];return {sourceId:source.id,name:lineNames[j],radius:latest.diameter*source.box[2]/source.width/2,holes:row.holes.map(p=>({x:(p.x-source.tx)/source.scale,y:(p.y-source.ty)/source.scale}))};});
+ state.fixed.push({rows,label:$('seamMode').selectedOptions[0].textContent});state.committedSignature=draftSignature();calculate();message('この配置を固定しました。次の辺を選んで続けてください。');
+};
 function file(){const index=+$('exportSource').value;return new File([exportSVG(index)],state.sources.length>1?`型紙${index+1}_${state.sources[index].name.replace(/\.svg$/i,'')}_針穴.svg`:'針穴配置済み.svg',{type:'image/svg+xml'});}
 $('save').onclick=()=>{try{calculate();const f=file(),url=URL.createObjectURL(f),a=document.createElement('a');a.href=url;a.download=f.name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);message('SVGを作成しました。Safariのダウンロード、または「ファイルを共有」から保存してください。');}catch(e){message(e.message);}};
 $('share').onclick=async()=>{try{calculate();const f=file();if(!navigator.canShare?.({files:[f]}))throw Error('このブラウザでは共有できません。SVGを保存してください。');await navigator.share({files:[f]});}catch(e){if(e.name!=='AbortError')message(e.message);}};

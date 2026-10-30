@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>針穴配置ツール</title>
-  <link rel="stylesheet" href="app/style.css?v=selection-pinch-1">
+  <link rel="stylesheet" href="app/style.css?v=fixed-sets-1">
 </head>
 <body>
 <header>
@@ -48,7 +48,7 @@
     <section class="card" id="seamSettings">
       <h2><span class="step">02</span> 縫い合わせる辺</h2>
       <p class="intro">AとBに、同じ数の針穴を並べます。</p>
-      <label>縫い合わせ方<select id="seamMode"><option value="pair">1つの辺 ↔ 1つの辺</option><option value="joined">1つの辺 ↔ 2つの辺（前半・後半）</option></select></label>
+      <label>縫い合わせ方<select id="seamMode"><option value="single">1辺だけに配置</option><option value="pair" selected>1つの辺 ↔ 1つの辺</option><option value="joined">1つの辺 ↔ 2つの辺（前半・後半）</option></select></label>
       <div id="joinedSettings" hidden><label>Aの分割位置 %<input id="split" type="number" min="0.1" max="99.9" step="0.1" value="50"></label><p class="hint">A前半をBへ、A後半をCへ。境目の穴は重ねず、A上で最小ピッチ以上を空けます。始終点%は各辺の詳細で調整できます。</p></div>
       <div id="lineFields"></div>
     </section>
@@ -59,14 +59,14 @@
     </section>
     <section class="card export" id="exportSettings">
       <h2><span class="step">04</span> 確認して保存</h2>
-      <div id="stats"></div><p id="warning" role="alert"></p>
+      <button id="fixSet" class="primary" disabled>この配置を固定して残す</button><p id="fixedSummary" class="hint"></p><div id="fixedList"></div><div id="stats"></div><p id="warning" role="alert"></p>
       <label>保存する型紙<select id="exportSource" disabled><option value="0">型紙1</option><option value="1">型紙2</option><option value="2">型紙3</option></select></label>
       <button id="save" class="primary" disabled>針穴入りSVGを保存</button><button id="share" class="secondary" disabled>ファイルを共有</button>
-      <p class="hint">型紙ごとに保存できます。裁断前に寸法・向き・穴位置を確認してください。</p>
+      <p class="hint">固定した配置と編集中の有効な配置をまとめて保存します。固定は再読み込みで消えるため、最後にSVGを保存してください。型紙ごとに保存できます。裁断前に寸法・向き・穴位置を確認してください。</p>
     </section>
   </aside>
 </main>
 <noscript>JavaScriptが動作していません。SafariでWebページを開いてください。</noscript>
-<script type="module" src="app/main.js?v=selection-pinch-1"></script>
+<script type="module" src="app/main.js?v=fixed-sets-1"></script>
 </body>
 </html>
