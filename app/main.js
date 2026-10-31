@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeSequences,placeRegistered,tangent,evaluate} from './geometry.js?v=seam-estimate-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeSequences,placeRegistered,tangent,evaluate} from './geometry.js?v=selected-curve-c-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -197,7 +197,7 @@ function buildLine(name,units,draw=true,excluded=[]){
 return line;
 }
 function recalculate(){
- const joinedMode=$('seamMode').value==='joined',singleMode=$('seamMode').value==='single',twoSided=$('seamMode').value==='twoSided';if(twoSided&&state.doc&&$('pathA').value!==''){const a=captureSection('A');showSection('B',a);$('sideA').value='auto';$('sideB').value='outside';for(const end of ['start','end'])$('corner'+end+'B').value='';}$('sideA').disabled=twoSided;$('estimateHint').hidden=!['registered','twoSided'].includes($('seamMode').value);
+ const joinedMode=$('seamMode').value==='joined',singleMode=$('seamMode').value==='single',twoSided=$('seamMode').value==='twoSided';if(twoSided&&state.doc&&$('pathA').value!==''){const a=captureSection('A');showSection('B',a);$('sideA').value='auto';$('sideB').value='outside';for(const end of ['start','end'])$('corner'+end+'B').value='';}$('sideA').disabled=twoSided;$('estimateHint').hidden=!['registered','twoSided'].includes($('seamMode').value);$('estimateHint').textContent=twoSided?'基準線C＝選択した一辺。内側・外側の対応する穴は、C上の同じ位置へ垂線の足が揃うよう配置します。実際の立体変形は再現しません。':'推定の仮定：カット線の同じ割合が対応し、長さ差は均等な伸縮として扱います。実際の3D形状・ねじれ・革の伸びは再現しません。';
  $('singleModeButton').setAttribute('aria-pressed',singleMode);$('pairModeButton').setAttribute('aria-pressed',!singleMode);
  $('mode').querySelector('option[value=B]').disabled=singleMode||twoSided;[...$('active').options].find(o=>o.value==='B').disabled=singleMode||twoSided;if((singleMode||twoSided)&&$('active').value==='B')$('active').value='A';if((singleMode||twoSided)&&$('mode').value==='B')$('mode').value='A';
  if($('active').value==='C')$('active').value='A';if($('mode').value==='C')$('mode').value='pan';
@@ -234,6 +234,7 @@ function recalculate(){
   const joined=$('seamMode').value==='joined';
   const estimated=['registered','twoSided'].includes($('seamMode').value);
   const result=estimated?placeRegistered(lines[0],lines[1],{mode:$('countMode').value,count,minPitch}):joined?placeJoined(...lines,{split:number('split',.1,99.9)/100,mode:$('countMode').value,count,minPitch}):place(lines[0],lines[1]||lines[0],{mode:$('countMode').value,count,minPitch});
+  if(twoSided){result.referenceKind='selectedCurveC';result.warning='選択した一辺を基準線Cとして、同じC上の位置から内側・外側の穴を配置しています。'+(result.rows.some(r=>r.minChord<minPitch)?' 穴中心の直線距離が下限未満の箇所があります。':'');}
   if($('seamMode').value==='single')result.rows=result.rows.slice(0,1);
   if(auto)$('count').value=joined?result.pairs[0].count:result.count;
   result.rows.forEach((row,j)=>{
