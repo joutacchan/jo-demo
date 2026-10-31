@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeSequences,tangent,evaluate} from './geometry.js?v=slit-boundary-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeSequences,tangent,evaluate} from './geometry.js?v=layer-editor-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -17,9 +17,9 @@ for(const name of lineNames){
   for(const id of ['insetMode'+end+name,'inset'+end+name])inset.querySelector('#'+id).addEventListener('input',schedule);
   div.append(inset);
   const pick=document.createElement('button');pick.id='pickCorner'+end+name;pick.className='pick-corner';pick.textContent=`${end==='start'?'始点':'終点'}の隣の辺を図で選ぶ`;
-  pick.onclick=()=>{document.activeElement?.blur();$('stage').focus({preventScroll:true});$('active').value=name;$('mode').value='corner'+end;$('mode').onchange();message(`線${name}の${end==='start'?'始点':'終点'}で角を揃える隣の辺をタップしてください。ドラッグで移動もできます。`);};
+  pick.onclick=()=>{closeLayers();document.activeElement?.blur();$('stage').focus({preventScroll:true});$('active').value=name;$('mode').value='corner'+end;$('mode').onchange();message(`線${name}の${end==='start'?'始点':'終点'}で角を揃える隣の辺をタップしてください。ドラッグで移動もできます。`);};
   const autoPick=document.createElement('button');autoPick.id='autoWall'+end+name;autoPick.className='pick-corner';autoPick.textContent=`${end==='start'?'始点':'終点'}を壁から3mmに自動調整`;
-  autoPick.onclick=()=>{document.activeElement?.blur();$('stage').focus({preventScroll:true});$('corner'+end+name).value='auto';calculate();message($('warning').textContent||'壁が見つかった端は3mm手前へ、見つからない端は元の位置を使います。');};
+  autoPick.onclick=()=>{closeLayers();document.activeElement?.blur();$('stage').focus({preventScroll:true});$('corner'+end+name).value='auto';calculate();message($('warning').textContent||'壁が見つかった端は3mm手前へ、見つからない端は元の位置を使います。');};
   controls.append(autoPick,pick);div.append(controls);
   for(const id of ['corner'+end+name,'cornerSide'+end+name])controls.querySelector('#'+id).onchange=schedule;
  }
@@ -28,7 +28,7 @@ for(const name of lineNames){
  const summary=document.createElement('summary');summary.textContent='端点・控え量・オフセット';advanced.append(summary);
  for(const child of [...div.children].slice(2))advanced.append(child);
  const pickLine=document.createElement('button');pickLine.className='pick-line';pickLine.id='pickLine'+name;pickLine.textContent='図で辺'+name+'を選ぶ';
- pickLine.onclick=()=>{document.activeElement?.blur();$('stage').focus({preventScroll:true});$('active').value=name;$('mode').value=name;$('mode').onchange();message('型紙の辺をタップしてください。');};
+ pickLine.onclick=()=>{closeLayers();document.activeElement?.blur();$('stage').focus({preventScroll:true});$('active').value=name;$('mode').value=name;$('mode').onchange();message('型紙の辺をタップしてください。');};
  div.append(pickLine,advanced);$('lineFields').append(div);
  const offsetHint=document.createElement('p');offsetHint.id='offsetHint'+name;offsetHint.className='hint';
  $('snap'+name).parentElement.after(offsetHint);$('offset'+name).setAttribute('aria-describedby',offsetHint.id);
@@ -46,12 +46,12 @@ function captureSection(name){const values=Object.fromEntries(sectionFields.map(
 function sectionPath(section){const si=state.sources.findIndex(s=>s.id===section.sourceId);if(si<0||!state.sources[si].paths[section.local])throw Error('原本が変更された区間があります。その区間を削除して追加し直してください。');return state.pathSources.indexOf(si)+section.local;}
 function showSection(name,section){const path=sectionPath(section);state.chains[name]=structuredClone(section.chain||null);for(const [key,value] of Object.entries(section.values)){const e=$(key+name);if(e.type==='checkbox')e.checked=value;else e.value=key==='path'?path:value;}syncRanges(name);}
 function persistSections(){if($('seamMode').value!=='sequence'||!state.sections||!state.sectionModeActive)return;for(const name of ['A','B']){const old=state.sections[name][state.sectionSelected[name]];if(old&&state.sources.some(s=>s.id===old.sourceId))state.sections[name][state.sectionSelected[name]]=captureSection(name);}}
-function renderSections(){const enabled=$('seamMode').value==='sequence',entering=enabled&&!state.sectionModeActive;const existing=!!state.sections;if(enabled&&!state.sections){state.sections={A:[captureSection('A')],B:[captureSection('B')]};state.sectionSelected={A:0,B:0};}if(entering&&existing)for(const name of ['A','B'])try{showSection(name,state.sections[name][state.sectionSelected[name]]);}catch(e){message(e.message);}state.sectionModeActive=enabled;for(const name of ['A','B']){const option=[...$('active').options].find(o=>o.value===name);if(option){option.value=name;option.textContent=enabled?name+(state.sectionSelected[name]+1):name;}}
+function renderSections(){if($('seamMode').value==='sequence'&&['A','B'].some(n=>$('path'+n).value==='')){for(const name of ['A','B'])$('sections'+name).hidden=true;return;}const enabled=$('seamMode').value==='sequence',entering=enabled&&!state.sectionModeActive;const existing=!!state.sections;if(enabled&&!state.sections){state.sections={A:[captureSection('A')],B:[captureSection('B')]};state.sectionSelected={A:0,B:0};}if(entering&&existing)for(const name of ['A','B'])try{showSection(name,state.sections[name][state.sectionSelected[name]]);}catch(e){message(e.message);}state.sectionModeActive=enabled;for(const name of ['A','B']){const option=[...$('active').options].find(o=>o.value===name);if(option){option.value=name;option.textContent=enabled?name+(state.sectionSelected[name]+1):name;}}
  for(const name of ['A','B']){const panel=$('sections'+name);panel.hidden=!enabled;if(!enabled)continue;const list=$('sectionList'+name);list.replaceChildren();state.sections[name].forEach((section,i)=>{const row=document.createElement('div');row.className='section-row';const edit=document.createElement('button');let caption='原本変更・再追加が必要';try{caption=pathLabel(sectionPath(section));}catch{}edit.textContent=`${name}${i+1} · ${caption}：${section.values.start}% → ${section.values.end}%${i===state.sectionSelected[name]?'（編集中）':''}`;edit.setAttribute('aria-pressed',String(i===state.sectionSelected[name]));edit.onclick=()=>{persistSections();state.sectionSelected[name]=i;$('active').value=name;if(lineNames.includes($('mode').value))$('mode').value=name;try{showSection(name,section);}catch(e){message(e.message);}calculate();};row.append(edit);
  for(const [text,delta] of [['↑',-1],['↓',1],['削除',0]]){const b=document.createElement('button');b.textContent=text;b.setAttribute('aria-label',`${name}${i+1} ${text}`);b.disabled=delta?i+delta<0||i+delta>=state.sections[name].length:state.sections[name].length===1;b.onclick=()=>{persistSections();const sections=state.sections[name];if(delta)[sections[i],sections[i+delta]]=[sections[i+delta],sections[i]];else sections.splice(i,1);state.sectionSelected[name]=delta?i+delta:Math.min(i,sections.length-1);showSection(name,sections[state.sectionSelected[name]]);calculate();};row.append(b);}list.append(row);});
  document.querySelector(`.line[data-name=${name}] h3`).textContent=`線${name} · ${name}${state.sectionSelected[name]+1}を編集中`;
  }}
-for(const name of ['A','B']){const panel=document.createElement('div');panel.id='sections'+name;panel.hidden=true;const add=document.createElement('button');add.id='addSection'+name;add.textContent=`${name}の区間を追加`;add.onclick=()=>{ensureSequenceMode();persistSections();state.sections[name].push(captureSection(name));state.sectionSelected[name]=state.sections[name].length-1;$('active').value=name;if(lineNames.includes($('mode').value))$('mode').value=name;calculate();message(`${name}${state.sectionSelected[name]+1}を追加しました。同じ辺の離れた区間なら始点・終点を変更してください。`);};const list=document.createElement('div');list.id='sectionList'+name;panel.append(list);const linePanel=document.querySelector(`.line[data-name=${name}]`);linePanel.append(panel,add);const split=document.createElement('button');split.id='splitSection'+name;split.textContent=`この辺・区間を分割（${name}）`;split.onclick=()=>splitSection(name);const options=document.createElement('details');options.innerHTML=`<summary>分割位置・空きを指定</summary><label>区間内の分割位置 %<input data-section-tool id="sectionSplit${name}" type="number" min="0.1" max="99.9" step="0.1" value="50"></label><label>分割箇所の空き mm（元カット線沿い）<input data-section-tool id="sectionGap${name}" type="number" min="0.1" step="0.1" value="10"></label>`;linePanel.append(split,options);}
+for(const name of ['A','B']){const panel=document.createElement('div');panel.id='sections'+name;panel.hidden=true;const add=document.createElement('button');add.id='addSection'+name;add.textContent='複数選ぶ';add.setAttribute('aria-label',`線${name}を複数選ぶ`);add.onclick=()=>{ensureSequenceMode();persistSections();state.sections[name].push(captureSection(name));state.sectionSelected[name]=state.sections[name].length-1;$('active').value=name;if(lineNames.includes($('mode').value))$('mode').value=name;calculate();message(`${name}${state.sectionSelected[name]+1}を追加しました。同じ辺の離れた区間なら始点・終点を変更してください。`);};const list=document.createElement('div');list.id='sectionList'+name;panel.append(list);const linePanel=document.querySelector(`.line[data-name=${name}]`);linePanel.append(panel,add);const split=document.createElement('button');split.id='splitSection'+name;split.textContent='分割';split.setAttribute('aria-label',`線${name}を分割`);split.onclick=()=>splitSection(name);const options=document.createElement('details');options.innerHTML=`<summary>分割位置・空きを指定</summary><label>区間内の分割位置 %<input data-section-tool id="sectionSplit${name}" type="number" min="0.1" max="99.9" step="0.1" value="50"></label><label>分割箇所の空き mm（元カット線沿い）<input data-section-tool id="sectionGap${name}" type="number" min="0.1" step="0.1" value="10"></label>`;linePanel.append(split,options);}
 function ensureSequenceMode(){if($('seamMode').value!=='sequence'){$('seamMode').value='sequence';calculate();}}
 function splitSection(name){try{ensureSequenceMode();persistSections();const position=number('sectionSplit'+name,.1,99.9)/100,gap=number('sectionGap'+name,.1,10000),i=state.sectionSelected[name],section=state.sections[name][i],path=sectionPath(section),units=state.sources[0].box[2]/number('width',1,10000),length=prepare(editorPath(name,path),units).total/units,start=+section.values.start,end=+section.values.end,sign=Math.sign(end-start),cut=start+(end-start)*position,half=gap/length*50;
  const leftEnd=cut-sign*half,rightStart=cut+sign*half;if(!sign||sign*(leftEnd-start)<=0||sign*(end-rightStart)<=0)throw Error('分割位置と空きが区間に収まりません。空きを小さくするか区間を広げてください。');
@@ -85,7 +85,7 @@ $('seamMode').addEventListener('change',()=>{if($('seamMode').value!=='sequence'
 for(const id of ['width','width2','width3','seamMode','split','diameter','count','pitch','countMode',...lineNames.flatMap(n=>['side','offset','snap'].map(k=>k+n))])$(id).addEventListener('input',schedule);
 // History stores editor values and immutable source text, never generated hole SVG.
 const history=[],future=[];let previous=null,restoring=false,editGroup=null,groupRecorded=false;
-const fields=()=>[...document.querySelectorAll('aside input[id],aside select[id]')].filter(e=>e.type!=='file'&&e.type!=='range'&&e.id!=='exportSource'&&!e.hasAttribute('data-section-tool'));
+const fields=()=>[...document.querySelectorAll('aside input[id],aside select[id],#lineFields input[id],#lineFields select[id],#seamModeControls select[id]')].filter(e=>e.type!=='file'&&e.type!=='range'&&e.id!=='exportSource'&&!e.hasAttribute('data-section-tool')).sort((a,b)=>a.id.localeCompare(b.id));
 function snapshot(){return {chains:structuredClone(state.chains),sections:structuredClone(state.sections),sectionSelected:{...state.sectionSelected},partOffsets:structuredClone(state.partOffsets),rotation:state.rotation,partOrder:[...state.partOrder],source:state.sourceText,name:state.sourceLabel,sources:state.sources.map(s=>({text:s.text,name:s.name,width:s.width,id:s.id})),fixed:[...state.fixed],completed:[...state.completed],committedSignature:state.committedSignature,view:[...state.view],values:fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value])};}
 function same(a,b){return JSON.stringify(a)===JSON.stringify(b);}
 function checkpoint(){
@@ -102,10 +102,10 @@ function checkpoint(){
 }
 function calculate(){cancelAnimationFrame(frame);frame=0;persistSections();checkpoint();recalculate();syncPartLayout();if(!restoring&&state.doc)previous=snapshot();}
 // One continuous field edit (typing or dragging a slider) is one undo step.
-document.querySelector('aside').addEventListener('focusin',e=>{
+document.addEventListener('focusin',e=>{if(!e.target.closest('aside,#lineFields'))return;
  editGroup=e.target.matches('input[type=number],input[type=range]')?e.target.id:null;groupRecorded=false;
 });
-document.querySelector('aside').addEventListener('focusout',()=>{
+document.addEventListener('focusout',e=>{if(!e.target.closest('aside,#lineFields'))return;
  if(frame){cancelAnimationFrame(frame);frame=0;calculate();}editGroup=null;groupRecorded=false;
 });
 function updateHistoryButtons(){$('undo').disabled=!history.length;$('redo').disabled=!future.length;}
@@ -200,11 +200,11 @@ function recalculate(){
  const joinedMode=$('seamMode').value==='joined',singleMode=$('seamMode').value==='single';
  $('singleModeButton').setAttribute('aria-pressed',singleMode);$('pairModeButton').setAttribute('aria-pressed',!singleMode);
  $('mode').querySelector('option[value=B]').disabled=singleMode;[...$('active').options].find(o=>o.value==='B').disabled=singleMode;if(singleMode&&$('active').value==='B')$('active').value='A';if(singleMode&&$('mode').value==='B')$('mode').value='A';
- let cOption=$('mode').querySelector('option[value=C]');if(!cOption){cOption=new Option('線Cを選択','C');$('mode').append(cOption);$('active').append(new Option('C','C'));}
- cOption.disabled=!joinedMode;$('active').querySelector('option[value=C]').disabled=!joinedMode;if(!joinedMode&&$('active').value==='C')$('active').value='A';if(!joinedMode&&$('mode').value==='C')$('mode').value='pan';
+ if($('active').value==='C')$('active').value='A';if($('mode').value==='C')$('mode').value='pan';
  state.autoWalls={};state.calculations++;state.latest=null;$('fixSet').disabled=true;$('save').disabled=!state.fixed.length;$('share').disabled=!state.fixed.length||!navigator.canShare;renderFixed();$('warning').textContent='';$('stats').replaceChildren();$('saveAll').disabled=!state.fixed.length;
  for(const id of ['guides','holes','markers'])$(id).replaceChildren();
  for(const name of lineNames){
+  if(name!=='C'){const empty=['A','B'].some(n=>$('path'+n).value==='');$('addSection'+name).disabled=empty;$('splitSection'+name).disabled=empty;}
   document.querySelector(`.line[data-name=${name}]`).hidden=!activeNames().includes(name);
   document.querySelector(`.line[data-name=${name}] h3`).textContent=$('seamMode').value==='joined'?({A:'A · つなぐ長い辺',B:'B · 前半につなぐ辺',C:'C · 後半につなぐ辺'}[name]):'線'+name;
   for(const end of ['start','end'])$('inset'+end+name).disabled=$('insetMode'+end+name).value!=='manual';
@@ -216,6 +216,7 @@ function recalculate(){
  renderCornerSelections();
  try{
   if(!state.doc)return;
+  if(activeNames().some(n=>$('path'+n).value==='')){$('warning').textContent='A/Bの辺を選んでください。固定した配置は残っています。';return;}
   renderFixed();
   const width=number('width',1,10000);for(let i=1;i<state.sources.length;i++)number('width'+(i+1),1,10000);rebuildScene();renderFixed();
   $('joinedSettings').hidden=$('seamMode').value!=='joined';$('countLabel').textContent=$('seamMode').value==='sequence'?'片側の総穴数':singleMode?'穴数':joinedMode?'各組の穴数':'片側の穴数';
@@ -458,7 +459,7 @@ function rebuildScene(force=false){
 function pathLabel(i){const source=state.pathSources[i],local=i-state.pathSources.indexOf(source),part=state.sources[source].parts.findIndex(p=>p.indices.includes(local));return `${state.sources.length>1?'型紙'+(source+1)+' · ':''}パーツ${part+1} · カット線 ${local+1}`;}
 function populateChoices(){
  for(const name of lineNames){
-  const select=$('path'+name);select.replaceChildren();state.paths.forEach((_,i)=>select.append(new Option(pathLabel(i),String(i))));
+  const select=$('path'+name);select.replaceChildren(new Option('未選択',''));state.paths.forEach((_,i)=>select.append(new Option(pathLabel(i),String(i))));
   for(const end of ['start','end']){
    const corners=$('corner'+end+name);corners.replaceChildren(new Option('揃えない',''),new Option('壁から3mmに自動調整','auto'));
    state.paths.forEach((_,i)=>corners.append(new Option(pathLabel(i),String(i))));
@@ -522,7 +523,7 @@ new ResizeObserver(updateMarkerScale).observe($('canvas'));
 function viewLocal(x,y){return new DOMPoint(x,y).matrixTransform($('canvas').getScreenCTM().inverse());}
 function local(x,y){return new DOMPoint(x,y).matrixTransform($('camera').getScreenCTM().inverse());}
 function rotatedBox(box,angle=state.rotation){const m=new DOMMatrix().rotate(angle),[x,y,w,h]=box,ps=[[x,y],[x+w,y],[x,y+h],[x+w,y+h]].map(([a,b])=>new DOMPoint(a,b).matrixTransform(m));const xs=ps.map(p=>p.x),ys=ps.map(p=>p.y);return [Math.min(...xs),Math.min(...ys),Math.max(...xs)-Math.min(...xs),Math.max(...ys)-Math.min(...ys)];}
-for(const [id,delta] of [['rotateLeft',-90],['rotateRight',90]])$(id).onclick=()=>{state.rotation=(state.rotation+delta+360)%360;state.view=rotatedBox(state.view,delta);applyView();checkpoint();};
+
 function zoom(factor,x,y){
  const before=viewLocal(x,y),v=state.view,w=Math.max(state.base[2]/40,Math.min(state.base[2]*4,v[2]/factor)),ratio=w/v[2];
  state.view=[before.x+(v[0]-before.x)*ratio,before.y+(v[1]-before.y)*ratio,w,v[3]*ratio];applyView();
@@ -666,6 +667,11 @@ function zipSVGs(){
 $('saveAll').onclick=()=>{try{calculate();const f=zipSVGs(),url=URL.createObjectURL(f),a=document.createElement('a');a.href=url;a.download=f.name;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);message('全SVGをZIPにまとめました。');}catch(e){message(e.message);}};
 $('save').onclick=()=>{try{calculate();const f=file(),url=URL.createObjectURL(f),a=document.createElement('a');a.href=url;a.download=f.name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);message('SVGを作成しました。Safariのダウンロード、または「ファイルを共有」から保存してください。');}catch(e){message(e.message);}};
 $('share').onclick=async()=>{try{calculate();const f=file();if(!navigator.canShare?.({files:[f]}))throw Error('このブラウザでは共有できません。SVGを保存してください。');await navigator.share({files:[f]});}catch(e){if(e.name!=='AbortError')message(e.message);}};
+const drawerItems=['seamModeControls','lineFields','fixedSummary','fixedList'].map(id=>{const el=$(id),anchor=document.createComment('drawer '+id);el.after(anchor);return {el,anchor};});
+function closeLayers(){if($('layersDrawer').hidden)return;for(const {el,anchor} of drawerItems)anchor.parentNode.insertBefore(el,anchor);for(const line of document.querySelectorAll('#lineFields .line')){line.classList.remove('layer-collapsed');const h=line.querySelector('h3');h.removeAttribute('role');h.removeAttribute('tabindex');h.removeAttribute('aria-expanded');}$('layersDrawer').hidden=true;$('layersToggle').setAttribute('aria-expanded','false');$('layersToggle').focus({preventScroll:true});}
+$('layersToggle').onclick=()=>{if(!$('layersDrawer').hidden){closeLayers();return;}for(const {el} of drawerItems)$(['seamModeControls','lineFields'].includes(el.id)?'layerEditor':'layerFixed').append(el);$('layersDrawer').hidden=false;for(const line of document.querySelectorAll('#lineFields .line')){const name=line.dataset.name,h=line.querySelector('h3'),collapsed=name!==$('active').value;line.classList.toggle('layer-collapsed',collapsed);h.setAttribute('role','button');h.tabIndex=0;h.setAttribute('aria-expanded',String(!collapsed));h.onclick=()=>{if($('layersDrawer').hidden)return;for(const other of document.querySelectorAll('#lineFields .line')){const closed=other!==line;other.classList.toggle('layer-collapsed',closed);other.querySelector('h3').setAttribute('aria-expanded',String(!closed));}$('active').value=name;if(lineNames.includes($('mode').value))$('mode').value=name;};h.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();h.click();}};}$('layersToggle').setAttribute('aria-expanded','true');$('layersClose').focus({preventScroll:true});};$('layersClose').onclick=closeLayers;document.addEventListener('keydown',e=>{if(e.key==='Escape')closeLayers();});
+$('fixSetPreview').onclick=()=>{if(!$('fixSet').disabled)$('fixSet').onclick();};new MutationObserver(()=>$('fixSetPreview').disabled=$('fixSet').disabled).observe($('fixSet'),{attributes:true,attributeFilter:['disabled']});
+$('clearSelection').onclick=()=>{closeLayers();for(const name of lineNames){$('path'+name).value='';state.chains[name]=null;for(const end of ['start','end'])$('corner'+end+name).value='';}state.sections=null;state.sectionSelected={A:0,B:0};state.sectionModeActive=false;state.committedSignature=null;for(const o of $('active').options)o.textContent=o.value;$('mode').value='A';$('active').value='A';calculate();message('編集中の選択をクリアしました。固定した配置は残しています。↶で戻せます。');};
 // Read-only diagnostics used by the regression suite; no external requests.
 window.stitch={state,loadSVG,loadSecondSVG,loadThirdSVG,importBatch,exportSVG,calculate,buildPrintDocument};
 window.addEventListener('error',e=>{message('エラー：'+e.message);$('boot').textContent='エラーが発生しました';});

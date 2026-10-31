@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>針穴配置ツール</title>
-  <link rel="stylesheet" href="app/style.css?v=slit-boundary-1">
+  <link rel="stylesheet" href="app/style.css?v=layer-editor-1">
 </head>
 <body>
 <header>
@@ -14,7 +14,7 @@
 <main>
   <section class="card preview" aria-label="型紙プレビュー">
     <div class="heading"><h2>プレビュー</h2><span id="sourceName"></span></div>
-    <div class="mode-tabs"><button id="singleModeButton">1辺だけに配置</button><button id="pairModeButton">組み合わせて配置</button></div><div class="toolbar">
+    <div class="toolbar">
       <button id="undo" title="1つ戻す" disabled aria-label="1つ前の状態に戻す">↶</button>
       <button id="redo" title="1つ進む" disabled aria-label="戻した操作を1つやり直す">↷</button>
       <label>タップで操作<select id="mode"><option value="pan">視点を移動</option><option value="partMove">パーツを移動</option><option value="A">線Aを選択</option><option value="B">線Bを選択</option><option value="start">始点を指定</option><option value="end">終点を指定</option><option value="cornerstart">始点の隣辺を選択</option><option value="cornerend">終点の隣辺を選択</option></select></label>
@@ -22,7 +22,8 @@
       <button id="minus" aria-label="縮小">−</button><button id="plus" aria-label="拡大">＋</button><button id="fit">全体</button>
     </div>
     <p class="hint" id="modeHint">ドラッグで移動、2本指でズーム。</p>
-    <div id="stage" tabindex="-1"><button id="expandView" aria-pressed="false">図を広げる</button><div class="view-tools"><button id="rotateLeft" aria-label="表示を左へ90度回転">↶ 90°</button><button id="rotateRight" aria-label="表示を右へ90度回転">↷ 90°</button><span id="rotationLabel">表示 0°</span></div><svg id="canvas" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2480 3505" preserveAspectRatio="xMidYMid meet"><g id="camera"><g id="drawing"></g><g id="neighbors" pointer-events="none"></g><g id="guides"></g><g id="holes"></g><g id="markers"></g></g></svg></div>
+    <div class="view-tools"><button id="layersToggle" aria-expanded="false" aria-controls="layersDrawer">レイヤー</button><button id="fixSetPreview" disabled>配置を固定</button><button id="clearSelection">選択クリア</button><span id="rotationLabel" hidden></span></div>
+    <div id="stage" tabindex="-1"><button id="expandView" aria-pressed="false">図を広げる</button><svg id="canvas" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2480 3505" preserveAspectRatio="xMidYMid meet"><g id="camera"><g id="drawing"></g><g id="neighbors" pointer-events="none"></g><g id="guides"></g><g id="holes"></g><g id="markers"></g></g></svg></div>
     <p id="message" role="status" aria-live="polite"></p>
   </section>
   <aside aria-label="編集設定">
@@ -48,8 +49,8 @@
     <section class="card" id="seamSettings">
       <h2><span class="step">02</span> 縫い合わせる辺</h2>
       <p class="intro">AとBに、同じ数の針穴を並べます。同じ線を両方に選び、各辺の詳細で「内側」「外側」を指定することもできます。</p>
-      <label>縫い合わせ方<select id="seamMode"><option value="single">1辺だけに配置</option><option value="sequence">複数区間を順番につなぐ（A全体 ↔ B全体）</option><option value="pair" selected>1つの辺 ↔ 1つの辺</option><option value="joined">1つの辺 ↔ 2つの辺（前半・後半）</option></select></label>
-      <div id="joinedSettings" hidden><label>Aの分割位置 %<input id="split" type="number" min="0.1" max="99.9" step="0.1" value="50"></label><p class="hint">A前半をBへ、A後半をCへ。境目の穴は重ねず、A上で最小ピッチ以上を空けます。始終点%は各辺の詳細で調整できます。</p></div>
+      <div id="seamModeControls"><div class="mode-tabs"><button id="singleModeButton">1辺だけに配置</button><button id="pairModeButton">組み合わせて配置</button></div>      <label>縫い合わせ方<select id="seamMode"><option value="single">1辺だけに配置</option><option value="sequence">複数区間を順番につなぐ（A全体 ↔ B全体）</option><option value="pair" selected>1つの辺 ↔ 1つの辺</option></select></label></div>
+      <div id="joinedSettings" hidden><input id="split" type="hidden" value="50"></div>
       <p class="hint">複数区間では、A1→A2…とB1→B2…の順に穴を対応させます。区間数は別でもよく、空きには穴を置きません。最小ピッチは各区間内で判定します。</p><div id="lineFields"></div>
     </section>
     <section class="card" id="holeSettings">
@@ -66,7 +67,8 @@
     </section>
   </aside>
 </main>
+<section id="layersDrawer" aria-label="レイヤー編集" hidden><div class="drawer-heading"><h2>レイヤー</h2><button id="layersClose" aria-label="レイヤーを閉じる">閉じる ×</button></div><p class="hint">A/Bの区間を縦に並べて編集します。図で選ぶ時はパネルを閉じます。</p><div id="layerEditor"></div><h3>固定した配置</h3><div id="layerFixed"></div></section>
 <noscript>JavaScriptが動作していません。SafariでWebページを開いてください。</noscript>
-<script type="module" src="app/main.js?v=slit-boundary-1"></script>
+<script type="module" src="app/main.js?v=layer-editor-1"></script>
 </body>
 </html>
