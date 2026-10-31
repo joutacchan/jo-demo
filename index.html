@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>針穴配置ツール</title>
-  <link rel="stylesheet" href="app/style.css?v=smooth-edge-fragments-1">
+  <link rel="stylesheet" href="app/style.css?v=c-anchors-fix-1">
 </head>
 <body>
 <header>
@@ -49,9 +49,9 @@
     <section class="card" id="seamSettings">
       <h2><span class="step">02</span> 縫い合わせる辺</h2>
       <p class="intro">組み合わせでは、共通基準C上の同じ位置へ対応する穴を配置します。同じ一辺の内外は「選択辺Cを基準」、片側だけは通常配置を選べます。</p>
-      <div id="seamModeControls"><div class="mode-tabs"><button id="singleModeButton">1辺だけに配置</button><button id="pairModeButton">組み合わせて配置</button></div>      <label>縫い合わせ方<select id="seamMode"><option value="single">1辺だけに配置</option><option value="registered" selected>2辺の組み合わせ（対応位置を推定）</option><option value="twoSided">1辺の内側・外側（選択辺Cを基準）</option><option value="sequence">複数区間を順番につなぐ（共通Cの対応位置を推定）</option></select></label><p id="estimateHint" class="hint" hidden>推定の仮定：カット線の同じ割合が対応し、長さ差は均等な伸縮として扱います。実際の3D形状・ねじれ・革の伸びは再現しません。</p></div>
+      <div id="seamModeControls"><div class="mode-tabs"><button id="singleModeButton">1辺だけに配置</button><button id="pairModeButton">組み合わせて配置</button></div>      <label>縫い合わせ方<select id="seamMode"><option value="single">1辺だけに配置</option><option value="registered" selected>2辺の組み合わせ（対応位置を推定）</option><option value="twoSided">1辺の内側・外側（選択辺Cを基準）</option><option value="sequence">複数区間を順番につなぐ（共通Cの対応位置を推定）</option></select></label><p id="estimateHint" class="hint" hidden>推定の仮定：異なる2辺では控え後の対応端を基準とし、その間のカット線長の同じ割合を共通Cの位置と扱います。実際の3D形状・ねじれ・革の伸びは再現しません。</p></div>
       <div id="joinedSettings" hidden><input id="split" type="hidden" value="50"></div>
-      <p class="hint">推定対応は、カット線の同じ割合が組み上がりで対応すると仮定します。3D形状や伸縮は再現しません。<br>複数区間では、A1→A2…とB1→B2…の順に穴を対応させます。区間数は別でもよく、空きには穴を置きません。最小ピッチは各区間内で判定します。</p><div id="lineFields"></div>
+      <p class="hint">異なる2辺の推定対応は、控え後の対応端を基準とし、その間のカット線長の同じ割合が組み上がりで対応すると仮定します。3D形状や伸縮は再現しません。<br>複数区間では、A1→A2…とB1→B2…の順に穴を対応させます。区間数は別でもよく、空きには穴を置きません。最小ピッチは各区間内で判定します。</p><div id="lineFields"></div>
     </section>
     <section class="card" id="holeSettings">
       <h2><span class="step">03</span> 針穴の設定</h2>
@@ -69,6 +69,6 @@
 </main>
 <section id="layersDrawer" aria-label="レイヤー編集" hidden><div class="drawer-heading"><h2>レイヤー</h2><button id="layersClose" aria-label="レイヤーを閉じる">閉じる ×</button></div><p class="hint">A/Bの区間を縦に並べて編集します。図で選ぶ時はパネルを閉じます。</p><div id="layerEditor"></div><h3>固定した配置</h3><div id="layerFixed"></div></section>
 <noscript>JavaScriptが動作していません。SafariでWebページを開いてください。</noscript>
-<script type="module" src="app/main.js?v=smooth-edge-fragments-1"></script>
+<script type="module" src="app/main.js?v=c-anchors-fix-1"></script>
 </body>
 </html>

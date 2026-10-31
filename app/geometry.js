@@ -1,6 +1,6 @@
 // Geometry uses SVG coordinates (+y down). Right normal = (-dy, dx).
 export const distance = (a,b) => Math.hypot(a.x-b.x,a.y-b.y);
-const mix = (a,b,t) => ({x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t});
+const mix = (a,b,t) => ({x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t,...(Number.isFinite(a.reference)&&Number.isFinite(b.reference)?{reference:a.reference+(b.reference-a.reference)*t}:{})});
 const point = (x,y) => ({x,y});
 const arity = {M:2,L:2,H:1,V:1,C:6,S:4,Q:4,T:2,Z:0};
 export function parsePath(d) {
@@ -84,6 +84,14 @@ export function prepare(path,units,{reference=false}={}){
   if(total<1e-8)throw Error('長さゼロの線です。');
   return {path,tables,total,units,reference};
 }
+export function cutPoint(prepared,fraction){
+ let remaining=fraction*prepared.total;
+ for(const table of prepared.tables){if(remaining<=table.len)return at(table,remaining);remaining-=table.len;}
+ return prepared.tables.at(-1).points.at(-1);
+}
+export function reverseLine(line){
+ return {...line,points:[...line.points].reverse().map(p=>({...p,s:line.len-p.s})),cutRange:line.cutRange?[...line.cutRange].reverse():undefined,cutEndpoints:line.cutEndpoints?[...line.cutEndpoints].reverse():undefined};
+}
 export function offsetLine(prepared,start,end,offset,side){
   if(![start,end,offset,side].every(Number.isFinite)||start<0||end<0||start>1||end>1||start===end)throw Error('始点と終点を異なる0〜100%で指定してください。');
   const reverse=start>end,lo=Math.min(start,end)*prepared.total,hi=Math.max(start,end)*prepared.total;
@@ -126,7 +134,7 @@ export function along(line,s){
   let l=1,r=p.length-1;while(l<r){const m=(l+r)>>1;if(p[m].s<s)l=m+1;else r=m;}
   const a=p[l-1],b=p[l],f=(s-a.s)/(b.s-a.s||1);
   // Evaluate on the offset curve rather than interpolating the normal or radius.
-  return a.chunk===b.chunk?a.chunk.fn(a.t+(b.t-a.t)*f):mix(a,b,f);
+  return a.chunk&&a.chunk===b.chunk?a.chunk.fn(a.t+(b.t-a.t)*f):mix(a,b,f);
 }
 export function place(a,b,{mode='fixed',count=13,minPitch=10}={}){
   if(!Number.isFinite(minPitch)||minPitch<10)throw Error('最小ピッチは10mm以上にしてください。');
@@ -156,7 +164,7 @@ export function cornerIntersections(line,neighbor){
       const ax=seg.p.x-p.x,ay=seg.p.y-p.y,t=(ax*ey-ay*ex)/den,u=(ax*dy-ay*dx)/den;
       if(t< -1e-8||t>1+1e-8||u< -1e-8||u>1+1e-8)continue;
       const s=p.s+Math.max(0,Math.min(1,t))*(q.s-p.s);
-      if(!hits.some(h=>Math.abs(h.s-s)<1e-7))hits.push({s,x:p.x+t*dx,y:p.y+t*dy,...(Number.isFinite(along(line,s).reference)?{reference:along(line,s).reference}:{}),...(p.chunk===q.chunk?{chunk:p.chunk,t:p.t+Math.max(0,Math.min(1,t))*(q.t-p.t)}:{})});
+      if(!hits.some(h=>Math.abs(h.s-s)<1e-7))hits.push({s,x:p.x+t*dx,y:p.y+t*dy,...(Number.isFinite(along(line,s).reference)?{reference:along(line,s).reference}:{}),...(p.chunk&&p.chunk===q.chunk?{chunk:p.chunk,t:p.t+Math.max(0,Math.min(1,t))*(q.t-p.t)}:{})});
     }
   }
   return hits;
@@ -244,8 +252,8 @@ export function fitWalls(prepared,start,end,offset,side,walls,{startAuto=false,e
   function advance(p){
    if(near(p).d<=r){
     const a=kept.at(-1);let lo=0,hi=1;
-    for(let k=0;k<35;k++){const f=(lo+hi)/2,q=a.chunk===p.chunk?a.chunk.fn(a.t+(p.t-a.t)*f):mix(a,p,f);if(near(q).d<=r)hi=f;else lo=f;}
-    const f=(lo+hi)/2,q=a.chunk===p.chunk?{...a.chunk.fn(a.t+(p.t-a.t)*f),t:a.t+(p.t-a.t)*f,chunk:a.chunk}:mix(a,p,f);
+    for(let k=0;k<35;k++){const f=(lo+hi)/2,q=a.chunk&&a.chunk===p.chunk?a.chunk.fn(a.t+(p.t-a.t)*f):mix(a,p,f);if(near(q).d<=r)hi=f;else lo=f;}
+    const f=(lo+hi)/2,q=a.chunk&&a.chunk===p.chunk?{...a.chunk.fn(a.t+(p.t-a.t)*f),t:a.t+(p.t-a.t)*f,chunk:a.chunk}:mix(a,p,f);
     autoWalls[isStart?'start':'end']=near(q).index;kept.push(q);return true;
    }kept.push(p);return false;
   }
@@ -253,14 +261,17 @@ export function fitWalls(prepared,start,end,offset,side,walls,{startAuto=false,e
   for(const p of points.slice(1)){travelled+=distance(kept.at(-1),p);if(advance(p))return kept;}
   if(!extend)return null;
   const sourceStart=isStart?!reverse:reverse,c=sourceStart?prepared.path.segments[0]:prepared.path.segments.at(-1),boundary=sourceStart?0:1,step=sourceStart?-.125:.125;
-  const v0=tangent(c,boundary),sign=side*(reverse?-1:1);
-  const fn=t=>{const v=tangent(c,t);if(v.x*v0.x+v.y*v0.y<=0)throw Error('カーブの延長が折り返します。自動調整を解除して端点を指定してください。');const p=evaluate(c,t);return point(p.x-v.y*offset*sign,p.y+v.x*offset*sign);};
+  const v0=tangent(c,boundary),sign=side*(reverse?-1:1);let sourceTravel=0;
   for(let k=0;k<32;k++){
-   const chunk=sample(fn,boundary+step*k,boundary+step*(k+1),.25*units,.0001*units);
+   const t0=boundary+step*k,t1=boundary+step*(k+1),sourceArc=prepared.reference?sample(t=>evaluate(c,t),t0,t1,.5*units,.0002*units):null,prefix=sourceTravel;
+   const referenceAt=t=>{const ps=sourceArc.points;let l=1,r=ps.length-1;while(l<r){const m=(l+r)>>1;if(sourceStart?ps[m].t>t:ps[m].t<t)l=m+1;else r=m;}const a=ps[l-1],b=ps[l],s=a.s+(b.s-a.s)*(t-a.t)/(b.t-a.t);return ((sourceStart?0:prepared.total)+(sourceStart?-1:1)*(prefix+s))/prepared.total;};
+   const fn=t=>{const v=tangent(c,t);if(v.x*v0.x+v.y*v0.y<=0)throw Error('カーブの延長が折り返します。自動調整を解除して端点を指定してください。');const p=evaluate(c,t),q=point(p.x-v.y*offset*sign,p.y+v.x*offset*sign);if(sourceArc)q.reference=referenceAt(t);return q;};
+   const chunk=sample(fn,t0,t1,.25*units,.0001*units);
    for(const p of chunk.points.slice(1)){
     travelled+=distance(kept.at(-1),p);if(travelled>maxLength*units)return null;
     if(advance({...p,chunk}))return kept;
    }
+   if(sourceArc)sourceTravel+=sourceArc.len;
   }return null;
  }
  const unchangedEnds=[];
@@ -349,8 +360,10 @@ export function placeRegisteredSequences(a,b,{mode='auto',count,minPitch=10}={})
   return lines.map((line,index)=>{
    const [start,end]=line.cutRange||[],weight=lengths[index]/total;
    const points=[];
-   for(const p of line.points){const next={q:base+weight*(p.reference-start)/(end-start),s:p.s/line.units},previous=points.at(-1);
-    if(previous&&Math.abs(next.q-previous.q)<1e-12&&Math.abs(next.s-previous.s)<1e-8)points[points.length-1]=next;else points.push(next);
+   for(const p of line.points){const next={q:base+weight*(p.reference-start)/(end-start),s:p.s/line.units,before:p.s/line.units},previous=points.at(-1);
+    // A small normal fan at a CAD join has one cut station and two arc positions.
+    // Keep its one-sided limits; never interpolate holes through the fan interior.
+    if(previous&&Math.abs(next.q-previous.q)<1e-12){previous.s=next.s;}else points.push(next);
    }base+=weight;
    if(points.length<2||points.some(p=>!Number.isFinite(p.q)||!Number.isFinite(p.s))||points.some((p,i)=>i&&(p.q<=points[i-1].q||p.s<=points[i-1].s)))throw Error('共通Cの基準位置を追跡できません。角合わせ・壁への延長を解除して元カット線内の区間を使ってください。');
    return {line,index,points,lo:Math.max(0,points[0].q),hi:Math.min(1,points.at(-1).q)};
@@ -359,7 +372,10 @@ export function placeRegisteredSequences(a,b,{mode='auto',count,minPitch=10}={})
  const interpolate=(points,value,key,out)=>{
   if(value<=points[0][key])return points[0][out];if(value>=points.at(-1)[key])return points.at(-1)[out];
   let l=1,r=points.length-1;while(l<r){const m=(l+r)>>1;if(points[m][key]<value)l=m+1;else r=m;}
-  const x=points[l-1],y=points[l];return x[out]+(y[out]-x[out])*(value-x[key])/(y[key]-x[key]);
+  const x=points[l-1],y=points[l];
+  if(key==='q'){if(Math.abs(value-y.q)<1e-12)return y.s;return x.s+(y.before-x.s)*(value-x.q)/(y.q-x.q);}
+  if(value>=y.before)return y.q;
+  return x.q+(y.q-x.q)*(value-x.s)/(y.before-x.s);
  };
  const pa=profiles(a),pb=profiles(b),stations=[],last=[new Map(),new Map()],pitch=minPitch+.0001;
  let i=0,j=0;
@@ -402,14 +418,14 @@ export function placeRegisteredSequences(a,b,{mode='auto',count,minPitch=10}={})
  return {count:stations.length,rows,sideRows,references:stations.map(s=>s.q),estimated:true,referenceKind:'orderedCutC',valid:rows.every(r=>r.pitch>=minPitch-1e-6),warning:'推定対応：区間順につないだカット線の累積長の同じ割合を共通Cの位置と仮定します。区間間の空きは除外し、対応のため端の穴が控えられる場合があります。実際の3D形状・ねじれ・伸びは未再現です。'+(rows.some(r=>r.minChord<minPitch)?' 穴中心の直線距離が下限未満の箇所があります。':'')};
 }
 
-export function placeRegistered(a,b,{mode='auto',count=13,minPitch=10}={}){
+export function placeRegistered(a,b,{mode='auto',count=13,minPitch=10,anchorEnds=false}={}){
  if(!Number.isFinite(minPitch)||minPitch<10)throw Error('最小ピッチは10mm以上にしてください。');
- const profile=line=>{const [start,end]=line.cutRange||[0,1],points=line.points.map(p=>({q:(p.reference-start)/(end-start),s:p.s}));if(points.some(p=>!Number.isFinite(p.q)))throw Error('推定対応で基準位置を追跡できません。角合わせ・壁への延長を解除して元カット線内の区間を使ってください。');if(points.some((p,i)=>i&&p.q<points[i-1].q-1e-8))throw Error('基準線の対応が逆転しています。区間を短くしてください。');const result=[];for(const p of points){if(result.length&&p.q-result.at(-1).q<1e-10)result[result.length-1]=p;else result.push(p);}if(result.length<2)throw Error('推定できる区間が短すぎます。');return result;};
+ const profile=line=>{const [start,end]=anchorEnds?[line.points[0].reference,line.points.at(-1).reference]:line.cutRange||[0,1],points=line.points.map(p=>({q:(p.reference-start)/(end-start),s:p.s}));if(points.some(p=>!Number.isFinite(p.q)))throw Error('推定対応で基準位置を追跡できません。角合わせ・壁への延長を解除して元カット線内の区間を使ってください。');if(points.some((p,i)=>i&&p.q<points[i-1].q-1e-8))throw Error('基準線の対応が逆転しています。区間を短くしてください。');const result=[];for(const p of points){if(result.length&&p.q-result.at(-1).q<1e-10)result[result.length-1]=p;else result.push(p);}if(result.length<2)throw Error('推定できる区間が短すぎます。');return result;};
  const pa=profile(a),pb=profile(b),lo=Math.max(pa[0].q,pb[0].q,0),hi=Math.min(pa.at(-1).q,pb.at(-1).q,1);if(hi<=lo)throw Error('対応する共通の縫合区間がありません。');
  const at=(ps,q)=>{if(q<=ps[0].q)return ps[0].s;if(q>=ps.at(-1).q)return ps.at(-1).s;let l=1,r=ps.length-1;while(l<r){const m=(l+r)>>1;if(ps[m].q<q)l=m+1;else r=m;}const x=ps[l-1],y=ps[l];return x.s+(y.s-x.s)*(q-x.q)/(y.q-x.q);};
  const qs=[...new Set([lo,...pa.map(p=>p.q).filter(q=>q>lo&&q<hi),...pb.map(p=>p.q).filter(q=>q>lo&&q<hi),hi])].sort((x,y)=>x-y);let total=0;const knots=qs.map((q,i)=>{if(i)total+=Math.min((at(pa,q)-at(pa,qs[i-1]))/a.units,(at(pb,q)-at(pb,qs[i-1]))/b.units);return {q,s:total};});
  const capacity=Math.min(1000,Math.floor(total/(minPitch+.0001))+1);if(mode==='auto')count=capacity;if(!Number.isInteger(count)||count<2||count>capacity)throw Error('共通の縫合位置と最小ピッチを満たす穴数にできません。区間を広げるか穴数を減らしてください。');
  const references=Array.from({length:count},(_,i)=>{const target=total*i/(count-1);if(i===count-1)return hi;let l=1,r=knots.length-1;while(l<r){const m=(l+r)>>1;if(knots[m].s<target)l=m+1;else r=m;}const x=knots[l-1],y=knots[l];return x.q+(y.q-x.q)*(target-x.s)/(y.s-x.s||1);});
- const rows=[[a,pa],[b,pb]].map(([line,ps])=>{const positions=references.map(q=>at(ps,q)),holes=positions.map(s=>along(line,s)),pitches=positions.slice(1).map((s,i)=>(s-positions[i])/line.units),chords=holes.slice(1).map((p,i)=>distance(p,holes[i])/line.units);return {holes,pitch:Math.min(...pitches),maxPitch:Math.max(...pitches),minChord:Math.min(...chords),maxChord:Math.max(...chords)};});
- return {count,rows,references,valid:rows.every(r=>r.pitch>=minPitch-1e-6),warning:'推定対応：両カット線の同じ割合を、組み上がりの同じ縫合位置と仮定。実際の3D形状・伸びは未検証です。'+(rows.some(r=>r.minChord<minPitch)?' 穴中心の直線距離が下限未満の箇所があります。':''),estimated:true};
+ const rows=[[a,pa],[b,pb]].map(([line,ps])=>{const positions=references.map(q=>at(ps,q)),holes=positions.map((s,i)=>({...along(line,s),seamReference:references[i]})),pitches=positions.slice(1).map((s,i)=>(s-positions[i])/line.units),chords=holes.slice(1).map((p,i)=>distance(p,holes[i])/line.units);return {holes,pitch:Math.min(...pitches),maxPitch:Math.max(...pitches),minChord:Math.min(...chords),maxChord:Math.max(...chords)};});
+ return {count,rows,references,anchorEnds,referenceRanges:[a,b].map(line=>anchorEnds?[line.points[0].reference,line.points.at(-1).reference]:line.cutRange||[0,1]),valid:rows.every(r=>r.pitch>=minPitch-1e-6),warning:'推定対応：両カット線の同じ割合を、組み上がりの同じ縫合位置と仮定。実際の3D形状・伸びは未検証です。'+(rows.some(r=>r.minChord<minPitch)?' 穴中心の直線距離が下限未満の箇所があります。':''),estimated:true};
 }
