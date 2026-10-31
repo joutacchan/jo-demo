@@ -1,9 +1,9 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeSequences,tangent,evaluate} from './geometry.js?v=section-split-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeSequences,tangent,evaluate} from './geometry.js?v=curve-chain-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
 let sourceSequence=0;
-const state={sections:null,sectionSelected:{A:0,B:0},rotation:0,partOffsets:{},partOrder:[],fixed:[],committedSignature:null,completed:[],sources:[],pathSources:[],doc:null,paths:[],view:[0,0,2480,3505],base:[0,0,2480,3505],latest:null,cache:new Map(),calculations:0};
+const state={chains:{A:null,B:null,C:null},sections:null,sectionSelected:{A:0,B:0},rotation:0,partOffsets:{},partOrder:[],fixed:[],committedSignature:null,completed:[],sources:[],pathSources:[],doc:null,paths:[],view:[0,0,2480,3505],base:[0,0,2480,3505],latest:null,cache:new Map(),calculations:0};
 const node=(name,attrs,parent)=>{const e=document.createElementNS(NS,name);for(const [k,v] of Object.entries(attrs))e.setAttribute(k,v);parent?.append(e);return e;};
 const message=text=>$('message').textContent=text;
 for(const name of lineNames){
@@ -39,12 +39,12 @@ for(const name of lineNames){
   $(id).oninput=e=>{$('range'+end+name).value=e.target.value;schedule();};
  }
  $('reverse'+name).onclick=()=>{const a=$('start'+name),b=$('end'+name);[a.value,b.value]=[b.value,a.value];for(const end of ['start','end']){$('corner'+end+name).value='';$('insetMode'+end+name).value='offset';}syncRanges(name);calculate();message($('warning').textContent||'始点と終点を入れ替え、壁に接する端の控えを自動で設定しました。');};
- $('path'+name).onchange=()=>{for(const endpoint of ['start','end']){$('corner'+endpoint+name).value='';$('insetMode'+endpoint+name).value='offset';}$('start'+name).value=0;$('end'+name).value=100;syncRanges(name);calculate();};
+ $('path'+name).onchange=()=>{state.chains[name]=curveChain(+$('path'+name).value);for(const endpoint of ['start','end']){$('corner'+endpoint+name).value='';$('insetMode'+endpoint+name).value='offset';}$('start'+name).value=0;$('end'+name).value=100;syncRanges(name);calculate();};
 }
 const sectionFields=['path','side','start','end','snap','offset','cornerstart','cornerend','cornerSidestart','cornerSideend','insetModestart','insetModeend','insetstart','insetend'];
-function captureSection(name){const values=Object.fromEntries(sectionFields.map(k=>{const e=$(k+name);return [k,e.type==='checkbox'?e.checked:e.value];})),i=+values.path,si=state.pathSources[i];return {values,sourceId:state.sources[si]?.id,local:i-state.pathSources.indexOf(si)};}
+function captureSection(name){const values=Object.fromEntries(sectionFields.map(k=>{const e=$(k+name);return [k,e.type==='checkbox'?e.checked:e.value];})),i=+values.path,si=state.pathSources[i];return {chain:structuredClone(state.chains[name]),values,sourceId:state.sources[si]?.id,local:i-state.pathSources.indexOf(si)};}
 function sectionPath(section){const si=state.sources.findIndex(s=>s.id===section.sourceId);if(si<0||!state.sources[si].paths[section.local])throw Error('原本が変更された区間があります。その区間を削除して追加し直してください。');return state.pathSources.indexOf(si)+section.local;}
-function showSection(name,section){const path=sectionPath(section);for(const [key,value] of Object.entries(section.values)){const e=$(key+name);if(e.type==='checkbox')e.checked=value;else e.value=key==='path'?path:value;}syncRanges(name);}
+function showSection(name,section){const path=sectionPath(section);state.chains[name]=structuredClone(section.chain||null);for(const [key,value] of Object.entries(section.values)){const e=$(key+name);if(e.type==='checkbox')e.checked=value;else e.value=key==='path'?path:value;}syncRanges(name);}
 function persistSections(){if($('seamMode').value!=='sequence'||!state.sections||!state.sectionModeActive)return;for(const name of ['A','B']){const old=state.sections[name][state.sectionSelected[name]];if(old&&state.sources.some(s=>s.id===old.sourceId))state.sections[name][state.sectionSelected[name]]=captureSection(name);}}
 function renderSections(){const enabled=$('seamMode').value==='sequence',entering=enabled&&!state.sectionModeActive;const existing=!!state.sections;if(enabled&&!state.sections){state.sections={A:[captureSection('A')],B:[captureSection('B')]};state.sectionSelected={A:0,B:0};}if(entering&&existing)for(const name of ['A','B'])try{showSection(name,state.sections[name][state.sectionSelected[name]]);}catch(e){message(e.message);}state.sectionModeActive=enabled;for(const name of ['A','B']){const option=[...$('active').options].find(o=>o.value===name);if(option){option.value=name;option.textContent=enabled?name+(state.sectionSelected[name]+1):name;}}
  for(const name of ['A','B']){const panel=$('sections'+name);panel.hidden=!enabled;if(!enabled)continue;const list=$('sectionList'+name);list.replaceChildren();state.sections[name].forEach((section,i)=>{const row=document.createElement('div');row.className='section-row';const edit=document.createElement('button');let caption='原本変更・再追加が必要';try{caption=pathLabel(sectionPath(section));}catch{}edit.textContent=`${name}${i+1} · ${caption}：${section.values.start}% → ${section.values.end}%${i===state.sectionSelected[name]?'（編集中）':''}`;edit.setAttribute('aria-pressed',String(i===state.sectionSelected[name]));edit.onclick=()=>{persistSections();state.sectionSelected[name]=i;$('active').value=name;if(lineNames.includes($('mode').value))$('mode').value=name;try{showSection(name,section);}catch(e){message(e.message);}calculate();};row.append(edit);
@@ -53,17 +53,18 @@ function renderSections(){const enabled=$('seamMode').value==='sequence',enterin
  }}
 for(const name of ['A','B']){const panel=document.createElement('div');panel.id='sections'+name;panel.hidden=true;const add=document.createElement('button');add.id='addSection'+name;add.textContent=`${name}の区間を追加`;add.onclick=()=>{ensureSequenceMode();persistSections();state.sections[name].push(captureSection(name));state.sectionSelected[name]=state.sections[name].length-1;$('active').value=name;if(lineNames.includes($('mode').value))$('mode').value=name;calculate();message(`${name}${state.sectionSelected[name]+1}を追加しました。同じ辺の離れた区間なら始点・終点を変更してください。`);};const list=document.createElement('div');list.id='sectionList'+name;panel.append(list);const linePanel=document.querySelector(`.line[data-name=${name}]`);linePanel.append(panel,add);const split=document.createElement('button');split.id='splitSection'+name;split.textContent=`この辺・区間を分割（${name}）`;split.onclick=()=>splitSection(name);const options=document.createElement('details');options.innerHTML=`<summary>分割位置・空きを指定</summary><label>区間内の分割位置 %<input data-section-tool id="sectionSplit${name}" type="number" min="0.1" max="99.9" step="0.1" value="50"></label><label>分割箇所の空き mm（元カット線沿い）<input data-section-tool id="sectionGap${name}" type="number" min="0.1" step="0.1" value="10"></label>`;linePanel.append(split,options);}
 function ensureSequenceMode(){if($('seamMode').value!=='sequence'){$('seamMode').value='sequence';calculate();}}
-function splitSection(name){try{ensureSequenceMode();persistSections();const position=number('sectionSplit'+name,.1,99.9)/100,gap=number('sectionGap'+name,.1,10000),i=state.sectionSelected[name],section=state.sections[name][i],path=sectionPath(section),units=state.sources[0].box[2]/number('width',1,10000),length=prepare(state.paths[path],units).total/units,start=+section.values.start,end=+section.values.end,sign=Math.sign(end-start),cut=start+(end-start)*position,half=gap/length*50;
+function splitSection(name){try{ensureSequenceMode();persistSections();const position=number('sectionSplit'+name,.1,99.9)/100,gap=number('sectionGap'+name,.1,10000),i=state.sectionSelected[name],section=state.sections[name][i],path=sectionPath(section),units=state.sources[0].box[2]/number('width',1,10000),length=prepare(editorPath(name,path),units).total/units,start=+section.values.start,end=+section.values.end,sign=Math.sign(end-start),cut=start+(end-start)*position,half=gap/length*50;
  const leftEnd=cut-sign*half,rightStart=cut+sign*half;if(!sign||sign*(leftEnd-start)<=0||sign*(end-rightStart)<=0)throw Error('分割位置と空きが区間に収まりません。空きを小さくするか区間を広げてください。');
  const left=structuredClone(section),right=structuredClone(section);left.values.end=String(leftEnd);right.values.start=String(rightStart);left.values.cornerend='';left.values.insetModeend='off';right.values.cornerstart='';right.values.insetModestart='off';state.sections[name].splice(i,1,left,right);showSection(name,left);$('active').value=name;$('mode').value=name;calculate();message(`${name}${i+1}と${name}${i+2}へ分割しました。分割箇所は元カット線沿いに${gap}mm空けています。`);
  }catch(e){$('warning').textContent=e.message;message(e.message);}}
+function sectionCurve(section){const members=section.chain?.members||[{local:section.local,reverse:false}],forward=JSON.stringify(members.map(m=>[m.local,m.reverse])),backward=JSON.stringify([...members].reverse().map(m=>[m.local,!m.reverse]));return {key:section.sourceId+':'+(forward<backward?forward:backward),flip:forward>backward};}
 function calculateSections(units,width,diameter,minPitch,count){
  const saved={A:captureSection('A'),B:captureSection('B')},entries=[],groups={A:[],B:[]},errors=[];
- try{const excluded=['A','B'].flatMap(n=>state.sections[n].flatMap(s=>{try{return [sectionPath(s)];}catch{return [];}}));for(const name of ['A','B'])for(const [i,section] of state.sections[name].entries()){try{showSection(name,section);const path=sectionPath(section),line=buildLine(name,units,false,excluded);entries.push({name,label:name+(i+1),path,line,section});groups[name].push(line);}catch(e){errors.push(`${name}${i+1}：${e.message}`);}}}
+ try{const excluded=['A','B'].flatMap(n=>state.sections[n].flatMap(s=>{try{return [sectionPath(s),...chainIndices(s.chain)];}catch{return [];}}));for(const name of ['A','B'])for(const [i,section] of state.sections[name].entries()){try{showSection(name,section);const path=sectionPath(section),line=buildLine(name,units,false,excluded);entries.push({name,label:name+(i+1),path,line,section});groups[name].push(line);}catch(e){errors.push(`${name}${i+1}：${e.message}`);}}}
  finally{for(const name of ['A','B'])showSection(name,saved[name]);}
  for(const {name,label,path,line} of entries){node('path',{d:line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '),stroke:colors[name],'data-line':name,'data-path':path,'data-section':label},$('guides'));for(const [p,end] of [[line.points[0],'始点'],[line.points.at(-1),'終点']]){const m=node('g',{'data-path':path,'data-x':p.x,'data-y':p.y,'data-section':label},$('markers'));node('text',{x:8,y:end==='始点'?-10:22,style:'font-size:14px;stroke-width:3px'},m).textContent=label+end;}}
  if(errors.length)throw Error(errors.join(' '));
- for(const name of ['A','B']){const sections=state.sections[name];for(let i=0;i<sections.length;i++)for(let j=i+1;j<sections.length;j++){const a=sections[i],b=sections[j],av=a.values,bv=b.values,physical=v=>resolveSide(v.side,sectionPath(a),+v.start>+v.end)*(+v.start>+v.end?-1:1),offset=v=>v.snap?3:+v.offset;if(a.sourceId===b.sourceId&&a.local===b.local&&offset(av)===offset(bv)&&(offset(av)===0||physical(av)===physical(bv))&&Math.max(Math.min(+av.start,+av.end),Math.min(+bv.start,+bv.end))<=Math.min(Math.max(+av.start,+av.end),Math.max(+bv.start,+bv.end))+1e-7)throw Error(`${name}${i+1}と${name}${j+1}が重なるか同じ端点を使っています。区間の間を空けてください。`);}}
+ for(const name of ['A','B']){const sections=state.sections[name];for(let i=0;i<sections.length;i++)for(let j=i+1;j<sections.length;j++){const a=sections[i],b=sections[j],av=a.values,bv=b.values,ac=sectionCurve(a),bc=sectionCurve(b),physical=(v,section,c)=>resolveSide(v.side,sectionPath(section),+v.start>+v.end)*(+v.start>+v.end?-1:1)*(c.flip?-1:1),offset=v=>v.snap?3:+v.offset,range=(v,c)=>[+v.start,+v.end].map(x=>c.flip?100-x:x).sort((a,b)=>a-b),ar=range(av,ac),br=range(bv,bc);if(ac.key===bc.key&&offset(av)===offset(bv)&&(offset(av)===0||physical(av,a,ac)===physical(bv,b,bc))&&Math.max(ar[0],br[0])<=Math.min(ar[1],br[1])+1e-7)throw Error(`${name}${i+1}と${name}${j+1}が重なるか同じ端点を使っています。区間の間を空けてください。`);}}
  const result=placeSequences(groups.A,groups.B,{mode:$('countMode').value,count,minPitch});if($('countMode').value==='auto')$('count').value=result.count;
  for(const id of ['guides','markers'])$(id).replaceChildren();
  const numbers={A:0,B:0};result.rows.forEach((row,j)=>{const entry=entries[j],{name,label,path,line}=entry,start=numbers[name]+1;numbers[name]+=row.holes.length;const end=numbers[name];entry.firstNumber=start;entry.lastNumber=end;
@@ -85,7 +86,7 @@ for(const id of ['width','width2','width3','seamMode','split','diameter','count'
 // History stores editor values and immutable source text, never generated hole SVG.
 const history=[],future=[];let previous=null,restoring=false,editGroup=null,groupRecorded=false;
 const fields=()=>[...document.querySelectorAll('aside input[id],aside select[id]')].filter(e=>e.type!=='file'&&e.type!=='range'&&e.id!=='exportSource'&&!e.hasAttribute('data-section-tool'));
-function snapshot(){return {sections:structuredClone(state.sections),sectionSelected:{...state.sectionSelected},partOffsets:structuredClone(state.partOffsets),rotation:state.rotation,partOrder:[...state.partOrder],source:state.sourceText,name:state.sourceLabel,sources:state.sources.map(s=>({text:s.text,name:s.name,width:s.width,id:s.id})),fixed:[...state.fixed],completed:[...state.completed],committedSignature:state.committedSignature,view:[...state.view],values:fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value])};}
+function snapshot(){return {chains:structuredClone(state.chains),sections:structuredClone(state.sections),sectionSelected:{...state.sectionSelected},partOffsets:structuredClone(state.partOffsets),rotation:state.rotation,partOrder:[...state.partOrder],source:state.sourceText,name:state.sourceLabel,sources:state.sources.map(s=>({text:s.text,name:s.name,width:s.width,id:s.id})),fixed:[...state.fixed],completed:[...state.completed],committedSignature:state.committedSignature,view:[...state.view],values:fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value])};}
 function same(a,b){return JSON.stringify(a)===JSON.stringify(b);}
 function checkpoint(){
  if(restoring||!state.doc)return;
@@ -123,7 +124,7 @@ function restoreHistory(from,to,text){
   state.fixed=[...(saved.fixed||[])];state.completed=[...(saved.completed||[])];state.committedSignature=saved.committedSignature;
   for(const [id,value] of saved.values){const e=$(id);if(e.type==='checkbox')e.checked=value;else e.value=value;}
   for(const name of lineNames)syncRanges(name);
-  state.sections=structuredClone(saved.sections||null);state.sectionSelected={...(saved.sectionSelected||{A:0,B:0})};state.partOffsets=structuredClone(saved.partOffsets||{});state.rotation=saved.rotation||0;state.partOrder=[...(saved.partOrder||[])];state.view=[...saved.view];applyView();recalculate();syncPartLayout();
+  state.chains=structuredClone(saved.chains||{A:null,B:null,C:null});state.sections=structuredClone(saved.sections||null);state.sectionSelected={...(saved.sectionSelected||{A:0,B:0})};state.partOffsets=structuredClone(saved.partOffsets||{});state.rotation=saved.rotation||0;state.partOrder=[...(saved.partOrder||[])];state.view=[...saved.view];applyView();recalculate();syncPartLayout();
  }finally{restoring=false;editGroup=null;groupRecorded=false;previous=snapshot();updateHistoryButtons();}
  message(text);
 }
@@ -134,11 +135,23 @@ function resolveSide(value,index,reverse=false){
  if(!state.inside[index])throw Error(state.sources[state.pathSources[index]].insideError);
  return state.inside[index]*(reverse?-1:1)*(value==='outside'?-1:1);
 }
+function chainIndices(chain){if(!chain)return [];const si=state.sources.findIndex(s=>s.id===chain.sourceId);if(si<0)throw Error('曲線の原本が変更されています。辺を選び直してください。');const first=state.pathSources.indexOf(si);return chain.members.map(m=>{if(!state.sources[si].paths[m.local])throw Error('曲線の辺が変更されています。辺を選び直してください。');return first+m.local;});}
+function curveChain(index){const si=state.pathSources[index],source=state.sources[si];if(!source)return null;const first=state.pathSources.indexOf(si),part=source.parts.find(p=>p.indices.includes(index-first));if(!part)return null;
+ const tol=.01*(state.sources[0].box[2]/(+$('width').value||210)),used=new Set([index]),members=[{index,reverse:false}];
+ const segments=m=>m.reverse?[...state.paths[m.index].segments].reverse().map(c=>[...c].reverse()):state.paths[m.index].segments;
+ const curved=cs=>{const a=cs[0][0],b=cs.at(-1).at(-1),dx=b.x-a.x,dy=b.y-a.y,length=Math.hypot(dx,dy);if(length<tol)return true;return cs.some(c=>[.25,.5,.75].some(t=>{const p=evaluate(c,t);return Math.abs(dx*(p.y-a.y)-dy*(p.x-a.x))/length>Math.max(tol,.005*length);}));};
+ const joins=(a,b)=>{const last=a.at(-1),head=b[0];if(!curved(a)||!curved(b)||last.length===2||head.length===2||distance(last.at(-1),head[0])>tol)return false;const u=tangent(last,1),v=tangent(head,0);return u.x*v.x+u.y*v.y>=Math.cos(Math.PI/12)-1e-9;};
+ for(const prepend of [false,true])for(let step=0;step<part.indices.length;step++){const current=segments(prepend?members[0]:members.at(-1)),candidates=[];for(const local of part.indices){const i=first+local;if(used.has(i))continue;for(const reverse of [false,true]){const m={index:i,reverse},cs=segments(m);if(prepend?joins(cs,current):joins(current,cs))candidates.push(m);}}
+ if(candidates.length!==1)break;const m=candidates[0];used.add(m.index);if(prepend)members.unshift(m);else members.push(m);}
+ return members.length>1?{sourceId:source.id,members:members.map(m=>({local:m.index-first,reverse:m.reverse}))}:null;
+}
+function editorPath(name,index){const chain=state.chains[name];if(!chain)return state.paths[index];const indices=chainIndices(chain);if(!indices.includes(index))return state.paths[index];const segments=chain.members.flatMap((m,i)=>m.reverse?[...state.paths[indices[i]].segments].reverse().map(c=>[...c].reverse()):state.paths[indices[i]].segments);return {start:segments[0][0],segments,closed:distance(segments[0][0],segments.at(-1).at(-1))<1e-9};}
+function curveMembers(name){return chainIndices(state.chains[name]);}
 function buildLine(name,units,draw=true,excluded=[]){
-   const idx=+$('path'+name).value,path=state.paths[idx];
+   const idx=+$('path'+name).value,path=editorPath(name,idx),members=curveMembers(name);
    const offset=$('snap'+name).checked?3:number('offset'+name,0,100);
    const start=number('start'+name,0,100)/100,end=number('end'+name,0,100)/100,side=resolveSide($('side'+name).value,idx,start>end);
-   const key=idx+':'+units;
+   const key=idx+':'+units+':'+JSON.stringify(state.chains[name]);
    if(!state.cache.has(key)){if(state.cache.size>30)state.cache.clear();state.cache.set(key,prepare(path,units));}
    let line=offsetLine(state.cache.get(key),start,end,offset*units,side);
    const guide=draw?node('path',{d:line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '),stroke:colors[name],'data-line':name},$('guides')):null;
@@ -147,7 +160,7 @@ function buildLine(name,units,draw=true,excluded=[]){
    if(startAuto||endAuto){
     if(state.inside[idx]&&side!==state.inside[idx]*(start>end?-1:1))throw Error('壁の自動調整は内側への配置で使ってください。');
     const walls=state.paths.flatMap((p,i)=>{
-     if(i===idx||!sameRegion(i,idx))return [];const key=i+':'+units;
+     if(i===idx||members.includes(i)||!sameRegion(i,idx))return [];const key=i+':'+units;
      if(!state.cache.has(key))state.cache.set(key,prepare(p,units));return [{index:i,prepared:state.cache.get(key)}];
     });
     line=fitWalls(state.cache.get(key),start,end,offset*units,side,walls,{startAuto,endAuto,clearance:3,maxLength:2*Math.hypot(...state.sources[state.pathSources[idx]].box.slice(2))*state.sources[state.pathSources[idx]].scale/units});
@@ -156,14 +169,14 @@ function buildLine(name,units,draw=true,excluded=[]){
    const corners={};
    for(const endpoint of ['start','end']){
     const chosen=$('corner'+endpoint+name).value;if(chosen===''||chosen==='auto')continue;
-    const neighbor=+chosen;if(neighbor===idx)throw Error('角を揃える隣の辺は、自分以外の線を選んでください。');
+    const neighbor=+chosen;if(neighbor===idx||members.includes(neighbor))throw Error('角を揃える隣の辺は、自分以外の線を選んでください。');
     if(state.pathSources[neighbor]!==state.pathSources[idx])throw Error('隣の辺は同じ型紙から選んでください。');
     const neighborKey=neighbor+':'+units;
     if(!state.cache.has(neighborKey))state.cache.set(neighborKey,prepare(state.paths[neighbor],units));
     corners[endpoint]=offsetLine(state.cache.get(neighborKey),0,1,offset*units,resolveSide($('cornerSide'+endpoint+name).value,neighbor));
    }
    if(corners.start||corners.end)line=alignCorners(line,corners);
-   const allWalls=state.paths.flatMap((p,i)=>{if(i===idx||!sameRegion(i,idx)||excluded.includes(i)||activeNames().some(n=>n!==name&&+$('path'+n).value===i))return [];const k=i+':'+units;if(!state.cache.has(k))state.cache.set(k,prepare(p,units));return [{index:i,prepared:state.cache.get(k)}];});
+   const allWalls=state.paths.flatMap((p,i)=>{if(i===idx||members.includes(i)||!sameRegion(i,idx)||excluded.includes(i)||activeNames().some(n=>n!==name&&(+$('path'+n).value===i||curveMembers(n).includes(i))))return [];const k=i+':'+units;if(!state.cache.has(k))state.cache.set(k,prepare(p,units));return [{index:i,prepared:state.cache.get(k)}];});
    const insets={};
    for(const endpoint of ['start','end']){
     if($('corner'+endpoint+name).value!=='')continue;
@@ -453,7 +466,7 @@ function populateChoices(){
  }
 }
 function resetLine(name,index){
- $('path'+name).value=index;$('side'+name).value='auto';$('start'+name).value=0;$('end'+name).value=100;
+ $('path'+name).value=index;state.chains[name]=curveChain(+index);$('side'+name).value='auto';$('start'+name).value=0;$('end'+name).value=100;
  for(const end of ['start','end']){$('insetMode'+end+name).value='offset';$('corner'+end+name).value='';$('cornerSide'+end+name).value='auto';}syncRanges(name);
 }
 function savedLineValues(){return fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value]);}
@@ -534,7 +547,7 @@ function hit(x,y){
  const corner=mode==='cornerstart'||mode==='cornerend';
  const candidates=lineNames.includes(mode)||corner?state.paths.map((_,i)=>i).filter(i=>!corner||(i!==+$('path'+$('active').value).value&&state.pathSources[i]===state.pathSources[+$('path'+$('active').value).value])):[+$('path'+$('active').value).value];
  let best={d:Infinity};
- for(const i of candidates){const key=i+':'+units;if(!state.cache.has(key))state.cache.set(key,prepare(state.paths[i],units));const prep=state.cache.get(key);let passed=0;for(const table of prep.tables){const shift=pathShift(i),match=nearest(table.points,{x:p.x-shift.x,y:p.y-shift.y});if(match.d<best.d)best={d:match.d,index:i,percent:100*(passed+match.s)/prep.total};passed+=table.len;}}
+ for(const i of candidates){const whole=!lineNames.includes(mode)&&!corner,name=$('active').value,key=i+':'+units+(whole?':'+JSON.stringify(state.chains[name]):'');if(!state.cache.has(key))state.cache.set(key,prepare(whole?editorPath(name,i):state.paths[i],units));const prep=state.cache.get(key);let passed=0;for(const table of prep.tables){const shift=pathShift(i),match=nearest(table.points,{x:p.x-shift.x,y:p.y-shift.y});if(match.d<best.d)best={d:match.d,index:i,percent:100*(passed+match.s)/prep.total};passed+=table.len;}}
  if(best.d>limit){message('線の近くをタップしてください。番号リストからも選択できます。');return;}
  if(corner){const name=$('active').value;$(mode+name).value=best.index;calculate();message($('warning').textContent||`線${name}の${mode==='cornerstart'?'始点':'終点'}の隣辺を選びました。図の太い線で確認できます。別の辺をタップすると変更できます。`);}
  else if(lineNames.includes(mode)){$('path'+mode).value=best.index;$('path'+mode).onchange();$('active').value=mode;message($('warning').textContent||`線${mode}にカット線${best.index+1}を選びました。`);}
@@ -574,7 +587,7 @@ export function exportSVG(sourceIndex=0){
  if(state.latest&&draftSignature()!==state.committedSignature)state.latest.result.rows.forEach((row,j)=>{if(state.latest.rowSources[j]!==sourceIndex)return;row.holes.forEach((p,i)=>appendHole({x:(p.x-source.tx)/source.scale,y:(p.y-source.ty)/source.scale},state.latest.diameter*units/2,`${state.latest.rowNames?.[j]||lineNames[j]}_${String(i+1).padStart(2,'0')}`));});
  return '<?xml version="1.0" encoding="UTF-8"?>\n'+new XMLSerializer().serializeToString(root);
 }
-function draftSignature(){return JSON.stringify({sources:state.sources.map(s=>s.id),sections:$('seamMode').value==='sequence'?state.sections:null,values:fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value])});}
+function draftSignature(){return JSON.stringify({sources:state.sources.map(s=>s.id),chains:$('seamMode').value==='sequence'?null:state.chains,sections:$('seamMode').value==='sequence'?state.sections:null,values:fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value])});}
 function renderFixed(){
  renderLibrary();
  let layer=$('fixedHoles');if(!layer){layer=node('g',{id:'fixedHoles','pointer-events':'none'},$('camera'));$('camera').insertBefore(layer,$('holes'));}layer.replaceChildren();
