@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>針穴配置ツール</title>
-  <link rel="stylesheet" href="app/style.css?v=layer-editor-1">
+  <link rel="stylesheet" href="app/style.css?v=preview-plus-1">
 </head>
 <body>
 <header>
@@ -22,7 +22,7 @@
       <button id="minus" aria-label="縮小">−</button><button id="plus" aria-label="拡大">＋</button><button id="fit">全体</button>
     </div>
     <p class="hint" id="modeHint">ドラッグで移動、2本指でズーム。</p>
-    <div class="view-tools"><button id="layersToggle" aria-expanded="false" aria-controls="layersDrawer">レイヤー</button><button id="fixSetPreview" disabled>配置を固定</button><button id="clearSelection">選択クリア</button><span id="rotationLabel" hidden></span></div>
+    <div class="view-tools"><button id="layersToggle" aria-expanded="false" aria-controls="layersDrawer">レイヤー</button><button id="addSelectionPreview" aria-label="対象AまたはBへ区間を追加">＋ 選択</button><button id="fixSetPreview" disabled>配置を固定</button><button id="clearSelection">選択クリア</button><span id="rotationLabel" hidden></span></div>
     <div id="stage" tabindex="-1"><button id="expandView" aria-pressed="false">図を広げる</button><svg id="canvas" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2480 3505" preserveAspectRatio="xMidYMid meet"><g id="camera"><g id="drawing"></g><g id="neighbors" pointer-events="none"></g><g id="guides"></g><g id="holes"></g><g id="markers"></g></g></svg></div>
     <p id="message" role="status" aria-live="polite"></p>
   </section>
@@ -69,6 +69,6 @@
 </main>
 <section id="layersDrawer" aria-label="レイヤー編集" hidden><div class="drawer-heading"><h2>レイヤー</h2><button id="layersClose" aria-label="レイヤーを閉じる">閉じる ×</button></div><p class="hint">A/Bの区間を縦に並べて編集します。図で選ぶ時はパネルを閉じます。</p><div id="layerEditor"></div><h3>固定した配置</h3><div id="layerFixed"></div></section>
 <noscript>JavaScriptが動作していません。SafariでWebページを開いてください。</noscript>
-<script type="module" src="app/main.js?v=layer-editor-1"></script>
+<script type="module" src="app/main.js?v=preview-plus-1"></script>
 </body>
 </html>
