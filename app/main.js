@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeSequences,tangent,evaluate} from './geometry.js?v=preview-plus-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeSequences,placeRegistered,tangent,evaluate} from './geometry.js?v=seam-estimate-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -151,8 +151,8 @@ function buildLine(name,units,draw=true,excluded=[]){
    const idx=+$('path'+name).value,path=editorPath(name,idx),members=curveMembers(name);
    const offset=$('snap'+name).checked?3:number('offset'+name,0,100);
    const start=number('start'+name,0,100)/100,end=number('end'+name,0,100)/100,side=resolveSide($('side'+name).value,idx,start>end);
-   const key=idx+':'+units+':'+JSON.stringify(state.chains[name]);
-   if(!state.cache.has(key)){if(state.cache.size>30)state.cache.clear();state.cache.set(key,prepare(path,units));}
+   const tracked=['registered','twoSided'].includes($('seamMode').value),key=idx+':'+units+':'+JSON.stringify(state.chains[name])+':'+tracked;
+   if(!state.cache.has(key)){if(state.cache.size>30)state.cache.clear();state.cache.set(key,prepare(path,units,{reference:tracked}));}
    let line=offsetLine(state.cache.get(key),start,end,offset*units,side);
    const guide=draw?node('path',{d:line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '),stroke:colors[name],'data-line':name},$('guides')):null;
    try{
@@ -189,7 +189,7 @@ function buildLine(name,units,draw=true,excluded=[]){
      line.autoWalls={...before.autoWalls,...line.autoWalls};state.autoWalls[endpoint+name]=line.autoWalls[endpoint];insets[endpoint]=amount;
     }else if(mode==='manual'){line=trimLine(line,endpoint==='start'?amount*units:0,endpoint==='end'?amount*units:0);insets[endpoint]=amount;}
    }
-   line.insets=insets;
+   line.insets=insets;line.cutRange=[start,end];
 
    guide?.setAttribute('d',line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '));
    }catch(e){guide?.setAttribute('data-corner-error','true');throw Error(`線${name}：${e.message}`);}
@@ -197,15 +197,15 @@ function buildLine(name,units,draw=true,excluded=[]){
 return line;
 }
 function recalculate(){
- const joinedMode=$('seamMode').value==='joined',singleMode=$('seamMode').value==='single';
+ const joinedMode=$('seamMode').value==='joined',singleMode=$('seamMode').value==='single',twoSided=$('seamMode').value==='twoSided';if(twoSided&&state.doc&&$('pathA').value!==''){const a=captureSection('A');showSection('B',a);$('sideA').value='auto';$('sideB').value='outside';for(const end of ['start','end'])$('corner'+end+'B').value='';}$('sideA').disabled=twoSided;$('estimateHint').hidden=!['registered','twoSided'].includes($('seamMode').value);
  $('singleModeButton').setAttribute('aria-pressed',singleMode);$('pairModeButton').setAttribute('aria-pressed',!singleMode);
- $('mode').querySelector('option[value=B]').disabled=singleMode;[...$('active').options].find(o=>o.value==='B').disabled=singleMode;if(singleMode&&$('active').value==='B')$('active').value='A';if(singleMode&&$('mode').value==='B')$('mode').value='A';
+ $('mode').querySelector('option[value=B]').disabled=singleMode||twoSided;[...$('active').options].find(o=>o.value==='B').disabled=singleMode||twoSided;if((singleMode||twoSided)&&$('active').value==='B')$('active').value='A';if((singleMode||twoSided)&&$('mode').value==='B')$('mode').value='A';
  if($('active').value==='C')$('active').value='A';if($('mode').value==='C')$('mode').value='pan';
  state.autoWalls={};state.calculations++;state.latest=null;$('fixSet').disabled=true;$('save').disabled=!state.fixed.length;$('share').disabled=!state.fixed.length||!navigator.canShare;renderFixed();$('warning').textContent='';$('stats').replaceChildren();$('saveAll').disabled=!state.fixed.length;
  for(const id of ['guides','holes','markers'])$(id).replaceChildren();
  for(const name of lineNames){
   if(name!=='C'){const empty=['A','B'].some(n=>$('path'+n).value==='');$('addSection'+name).disabled=empty;$('splitSection'+name).disabled=empty;}
-  document.querySelector(`.line[data-name=${name}]`).hidden=!activeNames().includes(name);
+  document.querySelector(`.line[data-name=${name}]`).hidden=!activeNames().includes(name)||(twoSided&&name==='B');
   document.querySelector(`.line[data-name=${name}] h3`).textContent=$('seamMode').value==='joined'?({A:'A · つなぐ長い辺',B:'B · 前半につなぐ辺',C:'C · 後半につなぐ辺'}[name]):'線'+name;
   for(const end of ['start','end'])$('inset'+end+name).disabled=$('insetMode'+end+name).value!=='manual';
   const fixed=$('snap'+name).checked;$('offset'+name).disabled=fixed;if(fixed)$('offset'+name).value=3;
@@ -232,7 +232,8 @@ function recalculate(){
   renderCornerSelections();
   if(cornerErrors.length)throw Error(cornerErrors.join(' ')+' 角合わせできない側は調整前の点線を表示しています。隣辺を選び直すか、↶で戻してください。');
   const joined=$('seamMode').value==='joined';
-  const result=joined?placeJoined(...lines,{split:number('split',.1,99.9)/100,mode:$('countMode').value,count,minPitch}):place(lines[0],lines[1]||lines[0],{mode:$('countMode').value,count,minPitch});
+  const estimated=['registered','twoSided'].includes($('seamMode').value);
+  const result=estimated?placeRegistered(lines[0],lines[1],{mode:$('countMode').value,count,minPitch}):joined?placeJoined(...lines,{split:number('split',.1,99.9)/100,mode:$('countMode').value,count,minPitch}):place(lines[0],lines[1]||lines[0],{mode:$('countMode').value,count,minPitch});
   if($('seamMode').value==='single')result.rows=result.rows.slice(0,1);
   if(auto)$('count').value=joined?result.pairs[0].count:result.count;
   result.rows.forEach((row,j)=>{

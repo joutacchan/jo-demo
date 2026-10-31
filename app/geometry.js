@@ -78,11 +78,11 @@ function at(table,s){
   const a=p[l-1],b=p[l],t=a.t+(b.t-a.t)*(s-a.s)/(b.s-a.s||1);
   return {...table.fn(t),t};
 }
-export function prepare(path,units){
+export function prepare(path,units,{reference=false}={}){
   const tables=path.segments.map(c=>sample(t=>evaluate(c,t),0,1,.5*units,.0002*units));
   const total=tables.reduce((s,t)=>s+t.len,0);
   if(total<1e-8)throw Error('長さゼロの線です。');
-  return {path,tables,total,units};
+  return {path,tables,total,units,reference};
 }
 export function offsetLine(prepared,start,end,offset,side){
   if(![start,end,offset,side].every(Number.isFinite)||start<0||end<0||start>1||end>1||start===end)throw Error('始点と終点を異なる0〜100%で指定してください。');
@@ -91,8 +91,8 @@ export function offsetLine(prepared,start,end,offset,side){
   prepared.tables.forEach((table,index)=>{
     const from=Math.max(0,lo-passed),to=Math.min(table.len,hi-passed);passed+=table.len;
     if(to<=from||table.len<1e-10)return;
-    const c=prepared.path.segments[index],t0=at(table,from).t,t1=at(table,to).t;
-    const fn=t=>{const p=evaluate(c,t),v=tangent(c,t),sign=side*(reverse?-1:1);return point(p.x-v.y*offset*sign,p.y+v.x*offset*sign);};
+    const base=passed-table.len,c=prepared.path.segments[index],t0=at(table,from).t,t1=at(table,to).t;
+    const fn=t=>{const p=evaluate(c,t),v=tangent(c,t),sign=side*(reverse?-1:1),q=point(p.x-v.y*offset*sign,p.y+v.x*offset*sign);if(prepared.reference){let l=1,r=table.points.length-1;while(l<r){const m=(l+r)>>1;if(table.points[m].t<t)l=m+1;else r=m;}const a=table.points[l-1],b=table.points[l];q.reference=(base+a.s+(b.s-a.s)*(t-a.t)/(b.t-a.t||1))/prepared.total;}return q;};
     const result=sample(fn,t0,t1,.25*prepared.units,.0001*prepared.units);
     result.center=evaluate(c,t0);chunks.push(result);
   });
@@ -106,7 +106,7 @@ export function offsetLine(prepared,start,end,offset,side){
         delta=Math.atan2(Math.sin(delta),Math.cos(delta));
         if(Math.abs(delta)>Math.PI/12)throw Error('15度を超える角があります。滑らかな区間を選んでください。');
         // Tiny tangent discontinuities in exported CAD splines: join normals by a circular fan.
-        joined.push(sample(t=>point(center.x+r*Math.cos(angle0+delta*t),center.y+r*Math.sin(angle0+delta*t)),0,1,.25*prepared.units,.0001*prepared.units));
+        joined.push(sample(t=>{const p=point(center.x+r*Math.cos(angle0+delta*t),center.y+r*Math.sin(angle0+delta*t));if(prepared.reference)p.reference=chunk.points[0].reference;return p;},0,1,.25*prepared.units,.0001*prepared.units));
       }
     }
     joined.push(chunk);
@@ -335,4 +335,17 @@ export function placeSequences(a,b,{mode='auto',count,minPitch=10}={}){
  const distribute=(lines,caps)=>{const counts=lines.map(()=>2);for(let remaining=count-counts.length*2;remaining>0;remaining--){let best=-1,score=-Infinity;lines.forEach((l,i)=>{const next=l.len/l.units/counts[i];if(counts[i]<caps[i]&&next>score){best=i;score=next;}});if(best<0)throw Error('区間へ穴数を割り当てられません。');counts[best]++;}return counts.map((n,i)=>place(lines[i],lines[i],{mode:'fixed',count:n,minPitch}).rows[0]);};
  const ar=distribute(a,ca),br=distribute(b,cb),rows=[...ar,...br];
  return {count,rows,sideRows:{A:ar,B:br},valid:rows.every(r=>r.pitch>=minPitch),warning:rows.some(r=>r.minChord<minPitch)?'弧長条件は満たしますが、区間内の穴中心の直線距離が下限未満です。':''};
+}
+
+// Approximation: the same normalized cut-edge station maps to the same assembled seam station.
+export function placeRegistered(a,b,{mode='auto',count=13,minPitch=10}={}){
+ if(!Number.isFinite(minPitch)||minPitch<10)throw Error('最小ピッチは10mm以上にしてください。');
+ const profile=line=>{const [start,end]=line.cutRange||[0,1],points=line.points.map(p=>({q:(p.reference-start)/(end-start),s:p.s}));if(points.some(p=>!Number.isFinite(p.q)))throw Error('推定対応で基準位置を追跡できません。角合わせ・壁への延長を解除して元カット線内の区間を使ってください。');if(points.some((p,i)=>i&&p.q<points[i-1].q-1e-8))throw Error('基準線の対応が逆転しています。区間を短くしてください。');const result=[];for(const p of points){if(result.length&&p.q-result.at(-1).q<1e-10)result[result.length-1]=p;else result.push(p);}if(result.length<2)throw Error('推定できる区間が短すぎます。');return result;};
+ const pa=profile(a),pb=profile(b),lo=Math.max(pa[0].q,pb[0].q,0),hi=Math.min(pa.at(-1).q,pb.at(-1).q,1);if(hi<=lo)throw Error('対応する共通の縫合区間がありません。');
+ const at=(ps,q)=>{if(q<=ps[0].q)return ps[0].s;if(q>=ps.at(-1).q)return ps.at(-1).s;let l=1,r=ps.length-1;while(l<r){const m=(l+r)>>1;if(ps[m].q<q)l=m+1;else r=m;}const x=ps[l-1],y=ps[l];return x.s+(y.s-x.s)*(q-x.q)/(y.q-x.q);};
+ const qs=[...new Set([lo,...pa.map(p=>p.q).filter(q=>q>lo&&q<hi),...pb.map(p=>p.q).filter(q=>q>lo&&q<hi),hi])].sort((x,y)=>x-y);let total=0;const knots=qs.map((q,i)=>{if(i)total+=Math.min((at(pa,q)-at(pa,qs[i-1]))/a.units,(at(pb,q)-at(pb,qs[i-1]))/b.units);return {q,s:total};});
+ const capacity=Math.min(1000,Math.floor(total/(minPitch+.0001))+1);if(mode==='auto')count=capacity;if(!Number.isInteger(count)||count<2||count>capacity)throw Error('共通の縫合位置と最小ピッチを満たす穴数にできません。区間を広げるか穴数を減らしてください。');
+ const references=Array.from({length:count},(_,i)=>{const target=total*i/(count-1);if(i===count-1)return hi;let l=1,r=knots.length-1;while(l<r){const m=(l+r)>>1;if(knots[m].s<target)l=m+1;else r=m;}const x=knots[l-1],y=knots[l];return x.q+(y.q-x.q)*(target-x.s)/(y.s-x.s||1);});
+ const rows=[[a,pa],[b,pb]].map(([line,ps])=>{const positions=references.map(q=>at(ps,q)),holes=positions.map(s=>along(line,s)),pitches=positions.slice(1).map((s,i)=>(s-positions[i])/line.units),chords=holes.slice(1).map((p,i)=>distance(p,holes[i])/line.units);return {holes,pitch:Math.min(...pitches),maxPitch:Math.max(...pitches),minChord:Math.min(...chords),maxChord:Math.max(...chords)};});
+ return {count,rows,references,valid:rows.every(r=>r.pitch>=minPitch-1e-6),warning:'推定対応：両カット線の同じ割合を、組み上がりの同じ縫合位置と仮定。実際の3D形状・伸びは未検証です。'+(rows.some(r=>r.minChord<minPitch)?' 穴中心の直線距離が下限未満の箇所があります。':''),estimated:true};
 }
