@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,tangent,evaluate} from './geometry.js?v=common-c-all-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,tangent,evaluate} from './geometry.js?v=smooth-edge-fragments-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -139,8 +139,17 @@ function chainIndices(chain){if(!chain)return [];const si=state.sources.findInde
 function curveChain(index){const si=state.pathSources[index],source=state.sources[si];if(!source)return null;const first=state.pathSources.indexOf(si),part=source.parts.find(p=>p.indices.includes(index-first));if(!part)return null;
  const tol=.01*(state.sources[0].box[2]/(+$('width').value||210)),used=new Set([index]),members=[{index,reverse:false}];
  const segments=m=>m.reverse?[...state.paths[m.index].segments].reverse().map(c=>[...c].reverse()):state.paths[m.index].segments;
- const curved=cs=>{const a=cs[0][0],b=cs.at(-1).at(-1),dx=b.x-a.x,dy=b.y-a.y,length=Math.hypot(dx,dy);if(length<tol)return true;return cs.some(c=>[.25,.5,.75].some(t=>{const p=evaluate(c,t);return Math.abs(dx*(p.y-a.y)-dy*(p.x-a.x))/length>Math.max(tol,.005*length);}));};
- const joins=(a,b)=>{const last=a.at(-1),head=b[0];if(!curved(a)||!curved(b)||last.length===2||head.length===2||distance(last.at(-1),head[0])>tol)return false;const u=tangent(last,1),v=tangent(head,0);return u.x*v.x+u.y*v.y>=Math.cos(Math.PI/12)-1e-9;};
+ // SVG command type does not define an edge: smooth L / nearly straight C/Q
+ // fragments belong to the same corner-to-corner chain as their curved neighbors.
+ // Check a physical neighborhood too: tiny terminal CAD handles can conceal a corner.
+ const localDirection=(c,end)=>{
+  const origin=end?c.at(-1):c[0],probe=.25*(state.sources[0].box[2]/(+$('width').value||210));
+  let hi=1/1024;while(hi<1&&distance(origin,evaluate(c,end?1-hi:hi))<probe)hi=Math.min(1,hi*2);
+  let lo=0;for(let i=0;i<20;i++){const mid=(lo+hi)/2;if(distance(origin,evaluate(c,end?1-mid:mid))<probe)lo=mid;else hi=mid;}
+  const p=evaluate(c,end?1-hi:hi),dx=end?origin.x-p.x:p.x-origin.x,dy=end?origin.y-p.y:p.y-origin.y,length=Math.hypot(dx,dy);
+  return length>1e-10?{x:dx/length,y:dy/length}:tangent(c,end?1:0);
+ };
+ const joins=(a,b)=>{const last=a.at(-1),head=b[0];if(distance(last.at(-1),head[0])>tol)return false;const u=tangent(last,1),v=tangent(head,0),x=localDirection(last,true),y=localDirection(head,false),limit=Math.cos(Math.PI/12)-1e-9;return u.x*v.x+u.y*v.y>=limit&&x.x*y.x+x.y*y.y>=limit;};
  for(const prepend of [false,true])for(let step=0;step<part.indices.length;step++){const current=segments(prepend?members[0]:members.at(-1)),candidates=[],junction=prepend?current[0][0]:current.at(-1).at(-1);const incident=part.indices.reduce((n,local)=>{const path=state.paths[first+local];return n+(distance(path.start,junction)<=tol?1:0)+(distance(path.segments.at(-1).at(-1),junction)<=tol?1:0);},0);if(incident!==2)break;for(const local of part.indices){const i=first+local;if(used.has(i)||(source.inside[local]!=null)!==(source.inside[index-first]!=null))continue;for(const reverse of [false,true]){const m={index:i,reverse},cs=segments(m);if(prepend?joins(cs,current):joins(current,cs))candidates.push(m);}}
  if(candidates.length!==1)break;const m=candidates[0];used.add(m.index);if(prepend)members.unshift(m);else members.push(m);}
  return members.length>1?{sourceId:source.id,members:members.map(m=>({local:m.index-first,reverse:m.reverse}))}:null;
