@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate} from './geometry.js?v=c-anchors-fix-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate} from './geometry.js?v=endpoints-drawer-2';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -72,7 +72,12 @@ function calculateSections(units,width,diameter,minPitch,count){
  node('path',{d:line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '),stroke:colors[name],'data-line':name,'data-path':path,'data-section':label},$('guides'));
  row.holes.forEach((p,i)=>node('circle',{cx:p.x,cy:p.y,r:diameter*units/2,'data-hole':`${name}_${start+i}`,'data-path':path,'data-section':label},$('holes')));
  for(const [p,endpoint,index] of [[row.holes[0],'始点',start],[row.holes.at(-1),'終点',end]]){const m=node('g',{'data-path':path,'data-x':p.x,'data-y':p.y,'data-section':label},$('markers'));node('circle',{cx:0,cy:0,r:5,fill:colors[name]},m);node('text',{x:8,y:endpoint==='始点'?-10:22,style:'font-size:14px;stroke-width:3px'},m).textContent=`${label}${endpoint} #${index}`;}
- const info=document.createElement('p');info.textContent=`${label}：#${start}〜#${end} ／ ${row.holes.length}穴 ／ 弧長ピッチ ${row.pitch.toFixed(3)}mm`;$('stats').append(info);
+ const wallInfo=['start','end'].flatMap(endpoint=>{
+  const index=line.autoWalls?.[endpoint];if(index===undefined)return [];
+  const hole=endpoint==='start'?row.holes[0]:row.holes.at(-1),actual=distanceToWalls(hole,[{prepared:prepare(state.paths[index],units)}])/units,requested=line.insets?.[endpoint]??3;
+  return [`${endpoint==='start'?'始点':'終点'}の壁距離 ${actual.toFixed(3)}mm（設定 ${requested}mm）`];
+ }).join(' ／ ');
+ const info=document.createElement('p');info.textContent=`${label}：#${start}〜#${end} ／ ${row.holes.length}穴 ／ 弧長ピッチ ${row.pitch.toFixed(3)}mm`+(wallInfo?' ／ '+wallInfo:'');$('stats').append(info);
  });
  state.autoWalls={};for(const entry of entries){if(entry.label===entry.name+(state.sectionSelected[entry.name]+1))for(const [end,index] of Object.entries(entry.line.autoWalls||{}))state.autoWalls[end+entry.name]=index;}renderCornerSelections();
  const summary=document.createElement('p');summary.textContent=`A全体 ${result.count}穴 ↔ B全体 ${result.count}穴。区間順の共通Cに対応し、区間間の空きには穴を置きません。`;$('stats').prepend(summary);$('warning').textContent=result.warning;

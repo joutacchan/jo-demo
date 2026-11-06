@@ -393,7 +393,21 @@ export function placeRegisteredSequences(a,b,{mode='auto',count,minPitch=10}={})
     if(stations.length>100000)throw Error('共通Cの配置候補が多すぎます。区間を短くするか最小ピッチを広げてください。');
    }
   }
+  // The forward pitch walk leaves a remainder at the far end. Move its last
+  // station to the common end: this only increases the preceding arc pitches
+  // on both sides and preserves the shared C coordinate.
+  const lastStation=stations.at(-1);
+  if(hi>=lo&&lastStation?.indices[0]===i&&lastStation.indices[1]===j){
+   lastStation.q=hi;lastStation.positions=pair.map(p=>interpolate(p.points,hi,'q','s'));
+   lastStation.positions.forEach((s,side)=>last[side].set(pair[side].index,s));
+  }
   if(pa[i].hi<=pb[j].hi)i++;else j++;
+ }
+ // Keep the first and last hole of every effective section when thinning.
+ const protectedStations=new Set();
+ for(let side=0;side<2;side++)for(let index=0;index<[a,b][side].length;index++){
+  const selected=stations.filter(s=>s.indices[side]===index);
+  if(selected.length){protectedStations.add(selected[0]);protectedStations.add(selected.at(-1));}
  }
  const counts=[a.map(()=>0),b.map(()=>0)];for(const s of stations)s.indices.forEach((index,side)=>counts[side][index]++);
  if(counts.some(side=>side.some(n=>n<2)))throw Error('共通Cの対応と最小ピッチでは各区間に2穴を確保できません。区間の長さ・順序・控えを見直してください。');
@@ -402,7 +416,7 @@ export function placeRegisteredSequences(a,b,{mode='auto',count,minPitch=10}={})
   if(!Number.isInteger(count)||count<2*Math.max(a.length,b.length)||count>stations.length)throw Error(`総穴数は共通Cの対応を保つ${2*Math.max(a.length,b.length)}〜${stations.length}穴の範囲で指定してください。`);
   while(stations.length>count){
    let best=-1,score=Infinity;
-   stations.forEach((s,k)=>{if(s.indices.some((index,side)=>counts[side][index]<=2))return;
+   stations.forEach((s,k)=>{if(protectedStations.has(s)||s.indices.some((index,side)=>counts[side][index]<=2))return;
     const before=stations[k-1],after=stations[k+1],cost=before&&after?after.q-before.q:Infinity;
     if(best<0||cost<score){best=k;score=cost;}});
    if(best<0)throw Error('この総穴数では全区間2穴と共通Cの対応を保てません。穴数を増やしてください。');
