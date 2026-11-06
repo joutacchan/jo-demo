@@ -184,9 +184,9 @@ export function alignCorners(line,{start=null,end=null}={}){
 
 // Join geometrically coincident endpoints without changing source paths.
 // Only unambiguous closed contours are accepted; nested contours use even/odd fill.
-export function interiorSides(paths,scale=1){
+export function interiorSides(paths,scale=1,endpointTolerance=.000001){
  const fail=()=>{throw Error('内側を判定できません。線の端点が閉じた輪郭につながっているか確認するか、手動の右／左を選んでください。');};
- const nodes=[],edges=[],epsilon=scale*1e-6;
+ const nodes=[],edges=[],epsilon=scale*endpointTolerance;
  const nodeFor=p=>{let n=nodes.find(n=>distance(n.p,p)<=epsilon);if(!n){n={p,edges:[]};nodes.push(n);}return n;};
  paths.forEach((path,index)=>{
   const a=nodeFor(path.start),b=nodeFor(path.segments.at(-1).at(-1));
@@ -351,14 +351,15 @@ export function placeSequences(a,b,{mode='auto',count,minPitch=10}={}){
 // Approximation: the same normalized cut-edge station maps to the same assembled seam station.
 // Disconnected sections share one cumulative cut-length coordinate (gaps excluded).
 // Each station belongs to one section on each side; never space across a gap.
-export function placeRegisteredSequences(a,b,{mode='auto',count,minPitch=10}={}){
+export function placeRegisteredSequences(a,b,{mode='auto',count,minPitch=10,anchorEnds=false}={}){
  if(!Number.isFinite(minPitch)||minPitch<10)throw Error('最小ピッチは10mm以上にしてください。');
  if(!a.length||!b.length)throw Error('AとBにそれぞれ区間を追加してください。');
  const profiles=lines=>{
-  const lengths=lines.map(l=>l.cutLength),total=lengths.reduce((s,n)=>s+n,0);let base=0;
+  const ranges=lines.map(l=>anchorEnds?[l.points[0].reference,l.points.at(-1).reference]:l.cutRange||[]);
+  const lengths=lines.map((l,i)=>l.cutLength*(anchorEnds?Math.abs((ranges[i][1]-ranges[i][0])/(l.cutRange[1]-l.cutRange[0])):1)),total=lengths.reduce((s,n)=>s+n,0);let base=0;
   if(lengths.some(n=>!Number.isFinite(n)||n<=0))throw Error('区間のカット線長を追跡できません。辺を選び直してください。');
   return lines.map((line,index)=>{
-   const [start,end]=line.cutRange||[],weight=lengths[index]/total;
+   const [start,end]=ranges[index],weight=lengths[index]/total;
    const points=[];
    for(const p of line.points){const next={q:base+weight*(p.reference-start)/(end-start),s:p.s/line.units,before:p.s/line.units},previous=points.at(-1);
     // A small normal fan at a CAD join has one cut station and two arc positions.
@@ -389,25 +390,11 @@ export function placeRegisteredSequences(a,b,{mode='auto',count,minPitch=10}={})
     }
     if(q>hi+1e-12)break;q=Math.min(q,hi);
     const positions=pair.map(p=>interpolate(p.points,q,'q','s'));
-    stations.push({q,indices:[i,j],positions});positions.forEach((s,side)=>last[side].set(pair[side].index,s));
+    stations.push({q,indices:[i,j],positions,hi});positions.forEach((s,side)=>last[side].set(pair[side].index,s));
     if(stations.length>100000)throw Error('共通Cの配置候補が多すぎます。区間を短くするか最小ピッチを広げてください。');
    }
   }
-  // The forward pitch walk leaves a remainder at the far end. Move its last
-  // station to the common end: this only increases the preceding arc pitches
-  // on both sides and preserves the shared C coordinate.
-  const lastStation=stations.at(-1);
-  if(hi>=lo&&lastStation?.indices[0]===i&&lastStation.indices[1]===j){
-   lastStation.q=hi;lastStation.positions=pair.map(p=>interpolate(p.points,hi,'q','s'));
-   lastStation.positions.forEach((s,side)=>last[side].set(pair[side].index,s));
-  }
   if(pa[i].hi<=pb[j].hi)i++;else j++;
- }
- // Keep the first and last hole of every effective section when thinning.
- const protectedStations=new Set();
- for(let side=0;side<2;side++)for(let index=0;index<[a,b][side].length;index++){
-  const selected=stations.filter(s=>s.indices[side]===index);
-  if(selected.length){protectedStations.add(selected[0]);protectedStations.add(selected.at(-1));}
  }
  const counts=[a.map(()=>0),b.map(()=>0)];for(const s of stations)s.indices.forEach((index,side)=>counts[side][index]++);
  if(counts.some(side=>side.some(n=>n<2)))throw Error('共通Cの対応と最小ピッチでは各区間に2穴を確保できません。区間の長さ・順序・控えを見直してください。');
@@ -416,12 +403,30 @@ export function placeRegisteredSequences(a,b,{mode='auto',count,minPitch=10}={})
   if(!Number.isInteger(count)||count<2*Math.max(a.length,b.length)||count>stations.length)throw Error(`総穴数は共通Cの対応を保つ${2*Math.max(a.length,b.length)}〜${stations.length}穴の範囲で指定してください。`);
   while(stations.length>count){
    let best=-1,score=Infinity;
-   stations.forEach((s,k)=>{if(protectedStations.has(s)||s.indices.some((index,side)=>counts[side][index]<=2))return;
+    stations.forEach((s,k)=>{if(k===0||k===stations.length-1||s.indices.some((index,side)=>counts[side][index]<=2))return;
     const before=stations[k-1],after=stations[k+1],cost=before&&after?after.q-before.q:Infinity;
     if(best<0||cost<score){best=k;score=cost;}});
    if(best<0)throw Error('この総穴数では全区間2穴と共通Cの対応を保てません。穴数を増やしてください。');
    const [removed]=stations.splice(best,1);removed.indices.forEach((index,side)=>counts[side][index]--);
   }
+ }
+ // Reserve the actual final common endpoint. Greedy pitch stepping used to leave
+ // its remainder entirely at the end (including in the exported SVG).
+ // Redistribute within each uninterrupted pair in the shared C coordinate; never
+ // use separate equal-arc placement for A and B or space across section gaps.
+ for(let end=stations.length;end>0;){
+  let start=end-1;const tail=stations[end-1],pair=[pa[tail.indices[0]],pb[tail.indices[1]]];
+  while(start>0&&stations[start-1].indices.every((n,side)=>n===tail.indices[side]))start--;
+  let hi=tail.hi;const next=stations[end];
+  if(next)for(let side=0;side<2;side++)if(next.indices[side]===tail.indices[side])hi=Math.min(hi,interpolate(pair[side].points,next.positions[side]-pitch,'s','q'));
+  hi=Math.max(tail.q,hi);
+  const lo=stations[start].q,n=end-start;
+  const knots=[...new Set([lo,hi,...pair.flatMap(p=>p.points.map(k=>k.q).filter(q=>q>lo&&q<hi))])].sort((x,y)=>x-y);
+  let length=0;const metric=knots.map((q,k)=>{if(k)length+=Math.min(...pair.map(p=>interpolate(p.points,q,'q','s')-interpolate(p.points,knots[k-1],'q','s')));return {q,s:length,before:length};});
+  if(n>=2&&length>=(n-1)*pitch-1e-9){
+   for(let k=0;k<n;k++){const q=k===n-1?hi:interpolate(metric,length*k/(n-1),'s','q');stations[start+k].q=q;stations[start+k].positions=pair.map(p=>interpolate(p.points,q,'q','s'));}
+  }else{tail.q=hi;tail.positions=pair.map(p=>interpolate(p.points,hi,'q','s'));}
+  end=start;
  }
  const sideRows={};for(const [side,lines,name] of [[0,a,'A'],[1,b,'B']])sideRows[name]=lines.map((line,index)=>{
   const selected=stations.filter(s=>s.indices[side]===index),holes=selected.map(s=>({...along(line,s.positions[side]*line.units),seamReference:s.q}));
@@ -429,7 +434,7 @@ export function placeRegisteredSequences(a,b,{mode='auto',count,minPitch=10}={})
   return {holes,pitch:Math.min(...pitches),maxPitch:Math.max(...pitches),minChord:Math.min(...chords),maxChord:Math.max(...chords)};
  });
  const rows=[...sideRows.A,...sideRows.B];
- return {count:stations.length,rows,sideRows,references:stations.map(s=>s.q),estimated:true,referenceKind:'orderedCutC',valid:rows.every(r=>r.pitch>=minPitch-1e-6),warning:'推定対応：区間順につないだカット線の累積長の同じ割合を共通Cの位置と仮定します。区間間の空きは除外し、対応のため端の穴が控えられる場合があります。実際の3D形状・ねじれ・伸びは未再現です。'+(rows.some(r=>r.minChord<minPitch)?' 穴中心の直線距離が下限未満の箇所があります。':'')};
+ return {count:stations.length,rows,sideRows,references:stations.map(s=>s.q),anchorEnds,estimated:true,referenceKind:'orderedCutC',valid:rows.every(r=>r.pitch>=minPitch-1e-6),warning:'推定対応：区間順につないだ'+(anchorEnds?'控え後の':'')+'カット線の累積長の同じ割合を共通Cの位置と仮定します。区間間の空きは除外します。同じ辺を共有する場合や区間境界では、C対応により指定端と実穴が異なる場合があります。実際の3D形状・ねじれ・伸びは未再現です。'+(rows.some(r=>r.minChord<minPitch)?' 穴中心の直線距離が下限未満の箇所があります。':'')};
 }
 
 export function placeRegistered(a,b,{mode='auto',count=13,minPitch=10,anchorEnds=false}={}){

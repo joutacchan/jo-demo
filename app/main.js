@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate} from './geometry.js?v=endpoints-drawer-2';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate} from './geometry.js?v=edge-insets-drawer-3';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -66,18 +66,19 @@ function calculateSections(units,width,diameter,minPitch,count){
  for(const {name,label,path,line} of entries){node('path',{d:line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '),stroke:colors[name],'data-line':name,'data-path':path,'data-section':label},$('guides'));for(const [p,end] of [[line.points[0],'始点'],[line.points.at(-1),'終点']]){const m=node('g',{'data-path':path,'data-x':p.x,'data-y':p.y,'data-section':label},$('markers'));node('text',{x:8,y:end==='始点'?-10:22,style:'font-size:14px;stroke-width:3px'},m).textContent=label+end;}}
  if(errors.length)throw Error(errors.join(' '));
  for(const name of ['A','B']){const sections=state.sections[name];for(let i=0;i<sections.length;i++)for(let j=i+1;j<sections.length;j++){const a=sections[i],b=sections[j];if(sectionSignature(a)===sectionSignature(b))continue;const av=a.values,bv=b.values,ac=sectionCurve(a),bc=sectionCurve(b),physical=(v,section,c)=>resolveSide(v.side,sectionPath(section),+v.start>+v.end)*(+v.start>+v.end?-1:1)*(c.flip?-1:1),offset=v=>v.snap?3:+v.offset,range=(v,c)=>[+v.start,+v.end].map(x=>c.flip?100-x:x).sort((a,b)=>a-b),ar=range(av,ac),br=range(bv,bc);if(ac.key===bc.key&&offset(av)===offset(bv)&&(offset(av)===0||physical(av,a,ac)===physical(bv,b,bc))&&Math.max(ar[0],br[0])<=Math.min(ar[1],br[1])+1e-7)throw Error(`${name}${i+1}と${name}${j+1}が重なるか同じ端点を使っています。区間の間を空けてください。`);}}
- const result=placeRegisteredSequences(groups.A,groups.B,{mode:$('countMode').value,count,minPitch});if(duplicates.length)result.warning=duplicates.join(' ')+result.warning;if($('countMode').value==='auto')$('count').value=result.count;
+ const curves={A:new Set(),B:new Set()};for(const entry of entries)curves[entry.name].add(sectionCurve(entry.section).key);
+ const anchorEnds=![...curves.A].some(key=>curves.B.has(key));
+ const result=placeRegisteredSequences(groups.A,groups.B,{mode:$('countMode').value,count,minPitch,anchorEnds});if(duplicates.length)result.warning=duplicates.join(' ')+result.warning;if($('countMode').value==='auto')$('count').value=result.count;
  for(const id of ['guides','markers'])$(id).replaceChildren();
  const numbers={A:0,B:0};result.rows.forEach((row,j)=>{const entry=entries[j],{name,label,path,line}=entry,start=numbers[name]+1;numbers[name]+=row.holes.length;const end=numbers[name];entry.firstNumber=start;entry.lastNumber=end;
  node('path',{d:line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '),stroke:colors[name],'data-line':name,'data-path':path,'data-section':label},$('guides'));
  row.holes.forEach((p,i)=>node('circle',{cx:p.x,cy:p.y,r:diameter*units/2,'data-hole':`${name}_${start+i}`,'data-path':path,'data-section':label},$('holes')));
  for(const [p,endpoint,index] of [[row.holes[0],'始点',start],[row.holes.at(-1),'終点',end]]){const m=node('g',{'data-path':path,'data-x':p.x,'data-y':p.y,'data-section':label},$('markers'));node('circle',{cx:0,cy:0,r:5,fill:colors[name]},m);node('text',{x:8,y:endpoint==='始点'?-10:22,style:'font-size:14px;stroke-width:3px'},m).textContent=`${label}${endpoint} #${index}`;}
- const wallInfo=['start','end'].flatMap(endpoint=>{
-  const index=line.autoWalls?.[endpoint];if(index===undefined)return [];
-  const hole=endpoint==='start'?row.holes[0]:row.holes.at(-1),actual=distanceToWalls(hole,[{prepared:prepare(state.paths[index],units)}])/units,requested=line.insets?.[endpoint]??3;
-  return [`${endpoint==='start'?'始点':'終点'}の壁距離 ${actual.toFixed(3)}mm（設定 ${requested}mm）`];
- }).join(' ／ ');
- const info=document.createElement('p');info.textContent=`${label}：#${start}〜#${end} ／ ${row.holes.length}穴 ／ 弧長ピッチ ${row.pitch.toFixed(3)}mm`+(wallInfo?' ／ '+wallInfo:'');$('stats').append(info);
+ const endpointInfo=['start','end'].map((endpoint,k)=>{const p=k?row.holes.at(-1):row.holes[0],wall=line.autoWalls?.[endpoint],requested=line.insets?.[endpoint]??3;
+  if(wall===undefined)return '';const actual=distanceToWalls(p,[{prepared:prepare(state.paths[wall],units)}])/units;
+  return ` ／ ${k?'終点':'始点'}の壁距離 ${actual.toFixed(3)}mm（控え設定 ${requested}mm）`;
+ }).join('');
+ const info=document.createElement('p');info.textContent=`${label}：#${start}〜#${end} ／ ${row.holes.length}穴 ／ 弧長ピッチ ${row.pitch.toFixed(3)}〜${row.maxPitch.toFixed(3)}mm${endpointInfo}`;$('stats').append(info);
  });
  state.autoWalls={};for(const entry of entries){if(entry.label===entry.name+(state.sectionSelected[entry.name]+1))for(const [end,index] of Object.entries(entry.line.autoWalls||{}))state.autoWalls[end+entry.name]=index;}renderCornerSelections();
  const summary=document.createElement('p');summary.textContent=`A全体 ${result.count}穴 ↔ B全体 ${result.count}穴。区間順の共通Cに対応し、区間間の空きには穴を置きません。`;$('stats').prepend(summary);$('warning').textContent=result.warning;
@@ -369,7 +370,7 @@ function enclosedRegions(paths,units){
  if(resultPaths.length>1000)throw Error('領域分割後の辺が1000本を超えます。');return {paths:resultPaths,parts,inside};
 }
 function detectParts(paths,units){
- const parent=paths.map((_,i)=>i),root=i=>parent[i]===i?i:parent[i]=root(parent[i]),tol=.001*units,cells=new Map();
+ const parent=paths.map((_,i)=>i),root=i=>parent[i]===i?i:parent[i]=root(parent[i]),tol=.01*units,cells=new Map();
  paths.forEach((path,i)=>{for(const p of [path.start,path.segments.at(-1).at(-1)]){
   const x=Math.floor(p.x/tol),y=Math.floor(p.y/tol);
   for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)for(const other of cells.get((x+dx)+','+(y+dy))||[])if(distance(p,other.p)<=tol)parent[root(i)]=root(other.i);
@@ -447,11 +448,11 @@ function readSource(text,name){
  const parts=regions?.parts||detectParts(paths,box[2]/210);let inside=regions?.inside||Array(paths.length).fill(null),insideError='内側を判定できません。右／左を手動で選んでください。';
  for(const part of regions?[]:parts){
   let indices=[...part.indices],changed=true;
-  while(changed){changed=false;const counts=new Map(),key=p=>Math.round(p.x/(box[2]/210*.000001))+','+Math.round(p.y/(box[2]/210*.000001));
-   for(const i of indices)for(const point of [paths[i].start,paths[i].segments.at(-1).at(-1)])counts.set(key(point),(counts.get(key(point))||0)+1);
-   const next=indices.filter(i=>counts.get(key(paths[i].start))>=2&&counts.get(key(paths[i].segments.at(-1).at(-1)))>=2);changed=next.length!==indices.length;indices=next;
+  while(changed){changed=false;const nodes=[],tol=.01*box[2]/210,node=p=>{let n=nodes.find(n=>distance(n.p,p)<=tol);if(!n){n={p,count:0};nodes.push(n);}return n;};
+   for(const i of indices)for(const point of [paths[i].start,paths[i].segments.at(-1).at(-1)])node(point).count++;
+   const next=indices.filter(i=>node(paths[i].start).count>=2&&node(paths[i].segments.at(-1).at(-1)).count>=2);changed=next.length!==indices.length;indices=next;
   }
-  try{const sides=interiorSides(indices.map(i=>paths[i]),box[2]/210);indices.forEach((i,k)=>inside[i]=sides[k]);}catch(e){insideError=e.message;}
+  try{const sides=interiorSides(indices.map(i=>paths[i]),box[2]/210,.01);indices.forEach((i,k)=>inside[i]=sides[k]);}catch(e){insideError=e.message;}
  }
  return {doc,text,name,box,paths,inside,insideError,parts,regionSplit:!!regions,id:++sourceSequence};
 }
@@ -696,8 +697,11 @@ $('saveAll').onclick=()=>{try{calculate();const f=zipSVGs(),url=URL.createObject
 $('save').onclick=()=>{try{calculate();const f=file(),url=URL.createObjectURL(f),a=document.createElement('a');a.href=url;a.download=f.name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);message('SVGを作成しました。Safariのダウンロード、または「ファイルを共有」から保存してください。');}catch(e){message(e.message);}};
 $('share').onclick=async()=>{try{calculate();const f=file();if(!navigator.canShare?.({files:[f]}))throw Error('このブラウザでは共有できません。SVGを保存してください。');await navigator.share({files:[f]});}catch(e){if(e.name!=='AbortError')message(e.message);}};
 const drawerItems=['seamModeControls','lineFields','fixedSummary','fixedList'].map(id=>{const el=$(id),anchor=document.createComment('drawer '+id);el.after(anchor);return {el,anchor};});
-function closeLayers(){if($('layersDrawer').hidden)return;for(const {el,anchor} of drawerItems)anchor.parentNode.insertBefore(el,anchor);for(const line of document.querySelectorAll('#lineFields .line')){line.classList.remove('layer-collapsed');const h=line.querySelector('h3');h.removeAttribute('role');h.removeAttribute('tabindex');h.removeAttribute('aria-expanded');}$('layersDrawer').hidden=true;$('layersToggle').setAttribute('aria-expanded','false');$('layersToggle').focus({preventScroll:true});}
+function closeLayers(){if($('layersDrawer').hidden)return;if($('layersDrawer').contains(document.activeElement))document.activeElement.blur();for(const {el,anchor} of drawerItems)anchor.parentNode.insertBefore(el,anchor);for(const line of document.querySelectorAll('#lineFields .line')){line.classList.remove('layer-collapsed');const h=line.querySelector('h3');h.removeAttribute('role');h.removeAttribute('tabindex');h.removeAttribute('aria-expanded');}$('layersDrawer').hidden=true;$('layersToggle').setAttribute('aria-expanded','false');$('layersToggle').focus({preventScroll:true});}
 $('layersToggle').onclick=()=>{if(!$('layersDrawer').hidden){closeLayers();return;}for(const {el} of drawerItems)$(['seamModeControls','lineFields'].includes(el.id)?'layerEditor':'layerFixed').append(el);$('layersDrawer').hidden=false;for(const line of document.querySelectorAll('#lineFields .line')){const name=line.dataset.name,h=line.querySelector('h3'),collapsed=name!==$('active').value;line.classList.toggle('layer-collapsed',collapsed);h.setAttribute('role','button');h.tabIndex=0;h.setAttribute('aria-expanded',String(!collapsed));h.onclick=()=>{if($('layersDrawer').hidden)return;for(const other of document.querySelectorAll('#lineFields .line')){const closed=other!==line;other.classList.toggle('layer-collapsed',closed);other.querySelector('h3').setAttribute('aria-expanded',String(!closed));}$('active').value=name;if(lineNames.includes($('mode').value))$('mode').value=name;};h.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();h.click();}};}$('layersToggle').setAttribute('aria-expanded','true');$('layersClose').focus({preventScroll:true});};$('layersClose').onclick=closeLayers;document.addEventListener('keydown',e=>{if(e.key==='Escape')closeLayers();});
+// Close on touch/pointer release, before Safari synthesizes a focus-changing click.
+// Keyboard activation continues to use the click handler above.
+$('layersClose').addEventListener('pointerup',e=>{if(e.pointerType==='mouse'&&e.button!==0)return;e.preventDefault();closeLayers();});
 $('addSelectionPreview').onclick=()=>{const name=$('active').value==='B'?'B':'A',add=$('addSection'+name);if(add.disabled){message('先にA/Bの辺を選んでください。');return;}add.onclick();$('mode').value=name;$('active').value=name;$('mode').onchange();closeLayers();message(`${name}${state.sectionSelected[name]+1}へ追加する辺をタップしてください。同じ辺なら始点・終点を変更できます。`);};
 $('fixSetPreview').onclick=()=>{if(!$('fixSet').disabled)$('fixSet').onclick();};new MutationObserver(()=>$('fixSetPreview').disabled=$('fixSet').disabled).observe($('fixSet'),{attributes:true,attributeFilter:['disabled']});
 $('clearSelection').onclick=()=>{closeLayers();for(const name of lineNames){$('path'+name).value='';state.chains[name]=null;for(const end of ['start','end'])$('corner'+end+name).value='';}state.sections=null;state.sectionSelected={A:0,B:0};state.sectionModeActive=false;state.committedSignature=null;for(const o of $('active').options)o.textContent=o.value;$('mode').value='A';$('active').value='A';calculate();message('編集中の選択をクリアしました。固定した配置は残しています。↶で戻せます。');};
