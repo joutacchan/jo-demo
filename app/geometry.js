@@ -351,7 +351,7 @@ export function placeSequences(a,b,{mode='auto',count,minPitch=10}={}){
 // Approximation: the same normalized cut-edge station maps to the same assembled seam station.
 // Disconnected sections share one cumulative cut-length coordinate (gaps excluded).
 // Each station belongs to one section on each side; never space across a gap.
-export function placeRegisteredSequences(a,b,{mode='auto',count,minPitch=10,anchorEnds=false}={}){
+export function placeRegisteredSequences(a,b,{mode='auto',count,minPitch=10,anchorEnds=false,sectionLabels={}}={}){
  if(!Number.isFinite(minPitch)||minPitch<10)throw Error('最小ピッチは10mm以上にしてください。');
  if(!a.length||!b.length)throw Error('AとBにそれぞれ区間を追加してください。');
  const profiles=lines=>{
@@ -397,7 +397,8 @@ export function placeRegisteredSequences(a,b,{mode='auto',count,minPitch=10,anch
   if(pa[i].hi<=pb[j].hi)i++;else j++;
  }
  const counts=[a.map(()=>0),b.map(()=>0)];for(const s of stations)s.indices.forEach((index,side)=>counts[side][index]++);
- if(counts.some(side=>side.some(n=>n<2)))throw Error('共通Cの対応と最小ピッチでは各区間に2穴を確保できません。区間の長さ・順序・控えを見直してください。');
+ const shortages=counts.flatMap((side,k)=>side.flatMap((n,index)=>n<2?[`${sectionLabels[['A','B'][k]]?.[index]||['A','B'][k]+(index+1)}：${n}穴（控え後の弧長 ${([a,b][k][index].len/[a,b][k][index].units).toFixed(3)}mm）`]:[]));
+ if(shortages.length)throw Error('現在の共通C配置計算では2穴に届かない区間があります。'+shortages.join(' ／ ')+'。固定には各区間2穴・弧長ピッチ10mm以上が必要です。レイヤーで該当区間の長さ・控え・対応順を確認してください。選択数の上限ではありません。');
  if(mode==='auto')count=Math.min(1000,stations.length);
  {
   if(!Number.isInteger(count)||count<2*Math.max(a.length,b.length)||count>stations.length)throw Error(`総穴数は共通Cの対応を保つ${2*Math.max(a.length,b.length)}〜${stations.length}穴の範囲で指定してください。`);

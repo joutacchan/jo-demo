@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate} from './geometry.js?v=edge-insets-drawer-3';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate} from './geometry.js?v=section-reason-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -68,7 +68,7 @@ function calculateSections(units,width,diameter,minPitch,count){
  for(const name of ['A','B']){const sections=state.sections[name];for(let i=0;i<sections.length;i++)for(let j=i+1;j<sections.length;j++){const a=sections[i],b=sections[j];if(sectionSignature(a)===sectionSignature(b))continue;const av=a.values,bv=b.values,ac=sectionCurve(a),bc=sectionCurve(b),physical=(v,section,c)=>resolveSide(v.side,sectionPath(section),+v.start>+v.end)*(+v.start>+v.end?-1:1)*(c.flip?-1:1),offset=v=>v.snap?3:+v.offset,range=(v,c)=>[+v.start,+v.end].map(x=>c.flip?100-x:x).sort((a,b)=>a-b),ar=range(av,ac),br=range(bv,bc);if(ac.key===bc.key&&offset(av)===offset(bv)&&(offset(av)===0||physical(av,a,ac)===physical(bv,b,bc))&&Math.max(ar[0],br[0])<=Math.min(ar[1],br[1])+1e-7)throw Error(`${name}${i+1}と${name}${j+1}が重なるか同じ端点を使っています。区間の間を空けてください。`);}}
  const curves={A:new Set(),B:new Set()};for(const entry of entries)curves[entry.name].add(sectionCurve(entry.section).key);
  const anchorEnds=![...curves.A].some(key=>curves.B.has(key));
- const result=placeRegisteredSequences(groups.A,groups.B,{mode:$('countMode').value,count,minPitch,anchorEnds});if(duplicates.length)result.warning=duplicates.join(' ')+result.warning;if($('countMode').value==='auto')$('count').value=result.count;
+ const result=placeRegisteredSequences(groups.A,groups.B,{mode:$('countMode').value,count,minPitch,anchorEnds,sectionLabels:Object.fromEntries(['A','B'].map(name=>[name,entries.filter(e=>e.name===name).map(e=>e.label)]))});if(duplicates.length)result.warning=duplicates.join(' ')+result.warning;if($('countMode').value==='auto')$('count').value=result.count;
  for(const id of ['guides','markers'])$(id).replaceChildren();
  const numbers={A:0,B:0};result.rows.forEach((row,j)=>{const entry=entries[j],{name,label,path,line}=entry,start=numbers[name]+1;numbers[name]+=row.holes.length;const end=numbers[name];entry.firstNumber=start;entry.lastNumber=end;
  node('path',{d:line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '),stroke:colors[name],'data-line':name,'data-path':path,'data-section':label},$('guides'));
