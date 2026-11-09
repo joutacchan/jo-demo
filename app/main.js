@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate,along,trimCADBacktracks} from './geometry.js?v=whole-edge-clear-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate,along,trimCADBacktracks} from './geometry.js?v=clear-two-taps-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -246,9 +246,13 @@ function recalculate(){
  try{
   if(!state.doc)return;
   if(activeNames().some(n=>$('path'+n).value==='')){
-   const selected=activeNames().filter(n=>$('path'+n).value!=='');
-   for(const name of selected){const index=+$('path'+name).value,path=editorPath(name,index);node('path',{d:pathD(path),stroke:colors[name],'data-line':name,'data-selection-preview':name},$('guides'));}
-   $('warning').textContent=selected.length?`線${selected.join('・')}を選択しました。残りの辺を選んでください。`:'A/Bの辺を選んでください。固定した配置は残っています。';return;
+   const selected=activeNames().filter(n=>$('path'+n).value!==''),pending=activeNames().filter(n=>$('path'+n).value===''),errors=[];
+   const units=state.sources[0].box[2]/number('width',1,10000);
+   for(const name of selected){try{const line=buildLine(name,units);$('guides').lastElementChild?.setAttribute('data-selection-preview',name);
+    for(const [p,end] of [[line.points[0],'start'],[line.points.at(-1),'end']]){const marker=node('g',{'data-endpoint':end+name,'data-x':p.x,'data-y':p.y},$('markers'));node('circle',{cx:0,cy:0,r:5,fill:colors[name]},marker);node('text',{x:8,y:-8},marker).textContent=name+(end==='start'?'始点':'終点');}
+   }catch(e){errors.push(e.message);}}
+   renderCornerSelections();updateMarkerScale();
+   $('warning').textContent=(selected.length?`線${selected.join('・')}を選択しました。次に線${pending.join('・')}をタップしてください。`:'A/Bの辺を選んでください。固定した配置は残っています。')+errors.join(' ');return;
   }
   renderFixed();
   const width=number('width',1,10000);for(let i=1;i<state.sources.length;i++)number('width'+(i+1),1,10000);rebuildScene();renderFixed();
@@ -596,7 +600,10 @@ function hit(x,y){
  for(const i of candidates){const whole=!lineNames.includes(mode)&&!corner,name=$('active').value,key=i+':'+units+(whole?':'+JSON.stringify(state.chains[name]):'');if(!state.cache.has(key))state.cache.set(key,prepare(whole?editorPath(name,i):state.paths[i],units));const prep=state.cache.get(key);let passed=0;for(const table of prep.tables){const shift=pathShift(i),match=nearest(table.points,{x:p.x-shift.x,y:p.y-shift.y});if(match.d<best.d)best={d:match.d,index:i,percent:100*(passed+match.s)/prep.total};passed+=table.len;}}
  if(best.d>limit){message('線の近くをタップしてください。番号リストからも選択できます。');return;}
  if(corner){const name=$('active').value;$(mode+name).value=best.index;calculate();message($('warning').textContent||`線${name}の${mode==='cornerstart'?'始点':'終点'}の隣辺を選びました。図の太い線で確認できます。別の辺をタップすると変更できます。`);}
- else if(lineNames.includes(mode)){$('path'+mode).value=best.index;$('path'+mode).onchange();$('active').value=mode;message($('warning').textContent||`線${mode}にカット線${best.index+1}を選びました。`);}
+ else if(lineNames.includes(mode)){$('path'+mode).value=best.index;
+  const next=['registered','sequence','pair'].includes($('seamMode').value)?['A','B'].find(n=>n!==mode&&$('path'+n).value===''):null;
+  $('active').value=next||mode;$('mode').value=next||mode;$('path'+mode).onchange();$('mode').onchange();
+  message($('warning').textContent||`線${mode}にカット線${best.index+1}を選びました。`);}
  else{const name=$('active').value;$(mode+name).value=best.percent.toFixed(1);syncRanges(name);calculate();message(`線${name}の${mode==='start'?'始点':'終点'}を変更しました。`);}
 }
 document.querySelector('.view-tools').addEventListener('pointerdown',e=>e.stopPropagation());
