@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate} from './geometry.js?v=unfix-insets-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate} from './geometry.js?v=short-endpoints-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -68,7 +68,7 @@ function calculateSections(units,width,diameter,minPitch,count){
  for(const name of ['A','B']){const sections=state.sections[name];for(let i=0;i<sections.length;i++)for(let j=i+1;j<sections.length;j++){const a=sections[i],b=sections[j];if(sectionSignature(a)===sectionSignature(b))continue;const av=a.values,bv=b.values,ac=sectionCurve(a),bc=sectionCurve(b),physical=(v,section,c)=>resolveSide(v.side,sectionPath(section),+v.start>+v.end)*(+v.start>+v.end?-1:1)*(c.flip?-1:1),offset=v=>v.snap?3:+v.offset,range=(v,c)=>[+v.start,+v.end].map(x=>c.flip?100-x:x).sort((a,b)=>a-b),ar=range(av,ac),br=range(bv,bc);if(ac.key===bc.key&&offset(av)===offset(bv)&&(offset(av)===0||physical(av,a,ac)===physical(bv,b,bc))&&Math.max(ar[0],br[0])<=Math.min(ar[1],br[1])+1e-7)throw Error(`${name}${i+1}と${name}${j+1}が重なるか同じ端点を使っています。区間の間を空けてください。`);}}
  const curves={A:new Set(),B:new Set()};for(const entry of entries)curves[entry.name].add(sectionCurve(entry.section).key);
  const anchorEnds=![...curves.A].some(key=>curves.B.has(key));
- const result=placeRegisteredSequences(groups.A,groups.B,{mode:$('countMode').value,count,minPitch,anchorEnds,sectionLabels:Object.fromEntries(['A','B'].map(name=>[name,entries.filter(e=>e.name===name).map(e=>e.label)]))});if(duplicates.length)result.warning=duplicates.join(' ')+result.warning;if($('countMode').value==='auto')$('count').value=result.count;
+ const result=placeRegisteredSequences(groups.A,groups.B,{mode:$('countMode').value,count,minPitch,anchorEnds,allowShort:true,sectionLabels:Object.fromEntries(['A','B'].map(name=>[name,entries.filter(e=>e.name===name).map(e=>e.label)]))});if(duplicates.length)result.warning=duplicates.join(' ')+result.warning;if($('countMode').value==='auto'||result.shortEndpoints)$('count').value=result.count;
  for(const id of ['guides','markers'])$(id).replaceChildren();
  const numbers={A:0,B:0};result.rows.forEach((row,j)=>{const entry=entries[j],{name,label,path,line}=entry,start=numbers[name]+1;numbers[name]+=row.holes.length;const end=numbers[name];entry.firstNumber=start;entry.lastNumber=end;
  node('path',{d:line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '),stroke:colors[name],'data-line':name,'data-path':path,'data-section':label},$('guides'));
@@ -203,7 +203,7 @@ function buildLine(name,units,draw=true,excluded=[]){
      const before=line;line=fitWalls(state.cache.get(key),start,end,offset*units,side,walls,{startAuto:endpoint==='start',endAuto:endpoint==='end',clearance:amount,extend:false,baseLine:line});
      if(line.autoWalls?.[endpoint]===undefined){if(distanceToWalls(endpoint==='start'?line.points[0]:line.points.at(-1),walls)<amount*units)throw Error('この控え量で壁から離せません。控え量か区間を見直してください。');else continue;}
      line.autoWalls={...before.autoWalls,...line.autoWalls};state.autoWalls[endpoint+name]=line.autoWalls[endpoint];insets[endpoint]=amount;
-    }else if(mode==='manual'){line=trimLine(line,endpoint==='start'?amount*units:0,endpoint==='end'?amount*units:0);insets[endpoint]=amount;}
+    }else if(mode==='manual'||(mode==='offset'&&state.cache.get(key).total*Math.abs(end-start)/units<(number('pitch',10,1000)+2*amount))){line=trimLine(line,endpoint==='start'?amount*units:0,endpoint==='end'?amount*units:0);insets[endpoint]=amount;}
    }
    line.insets=insets;line.cutRange=[start,end];line.cutLength=state.cache.get(key).total*Math.abs(end-start)/units;line.cutEndpoints=[cutPoint(state.cache.get(key),start),cutPoint(state.cache.get(key),end)];
 
@@ -215,7 +215,7 @@ return line;
 function recalculate(){
  // Migrate legacy pair values from undo/history to the common-reference method.
  if($('seamMode').value==='pair')$('seamMode').value='registered';
- const joinedMode=$('seamMode').value==='joined',singleMode=$('seamMode').value==='single',twoSided=$('seamMode').value==='twoSided';if(twoSided&&state.doc&&$('pathA').value!==''){const a=captureSection('A');showSection('B',a);$('sideA').value='auto';$('sideB').value='outside';for(const end of ['start','end'])$('corner'+end+'B').value='';}$('sideA').disabled=twoSided;$('estimateHint').hidden=!['registered','twoSided','sequence','pair'].includes($('seamMode').value);$('estimateHint').textContent=$('seamMode').value==='sequence'?'推定の仮定：異なる辺でA/Bの区間数が同じ場合は、番号順に控え後の始点・終点を対応させます。それ以外は累積カット線長の割合で共通Cへ対応させます。区間間の空きは除外します。穴は各区間2個以上、区間内の弧長ピッチ10mm以上。実際の立体変形は再現しません。':twoSided?'基準線C＝選択した一辺。内側・外側の対応する穴は、C上の同じ位置へ垂線の足が揃うよう配置します。実際の立体変形は再現しません。':'推定の仮定：控え後の対応端を揃え、その間のカット線長の同じ割合を共通Cの位置と扱います。共通の角がある場合は、始点・終点の名称に関わらずその角を対応させます。実際の3D形状・ねじれ・革の伸びは再現しません。';
+ const joinedMode=$('seamMode').value==='joined',singleMode=$('seamMode').value==='single',twoSided=$('seamMode').value==='twoSided';if(twoSided&&state.doc&&$('pathA').value!==''){const a=captureSection('A');showSection('B',a);$('sideA').value='auto';$('sideB').value='outside';for(const end of ['start','end'])$('corner'+end+'B').value='';}$('sideA').disabled=twoSided;$('estimateHint').hidden=!['registered','twoSided','sequence','pair'].includes($('seamMode').value);$('estimateHint').textContent=$('seamMode').value==='sequence'?'推定の仮定：異なる辺でA/Bの区間数が同じ場合は、番号順に控え後の始点・終点を対応させます。それ以外は累積カット線長の割合で共通Cへ対応させます。区間間の空きは除外します。通常は区間内の弧長ピッチ10mm以上。短い辺は控え後の両端2穴を優先します。実際の立体変形は再現しません。':twoSided?'基準線C＝選択した一辺。内側・外側の対応する穴は、C上の同じ位置へ垂線の足が揃うよう配置します。実際の立体変形は再現しません。':'推定の仮定：控え後の対応端を揃え、その間のカット線長の同じ割合を共通Cの位置と扱います。共通の角がある場合は、始点・終点の名称に関わらずその角を対応させます。実際の3D形状・ねじれ・革の伸びは再現しません。';
  $('singleModeButton').setAttribute('aria-pressed',singleMode);$('pairModeButton').setAttribute('aria-pressed',!singleMode);
  $('mode').querySelector('option[value=B]').disabled=singleMode||twoSided;[...$('active').options].find(o=>o.value==='B').disabled=singleMode||twoSided;if((singleMode||twoSided)&&$('active').value==='B')$('active').value='A';if((singleMode||twoSided)&&$('mode').value==='B')$('mode').value='A';
  if($('active').value==='C')$('active').value='A';if($('mode').value==='C')$('mode').value='pan';
@@ -256,10 +256,11 @@ function recalculate(){
   // A common cut corner identifies corresponding ends even when one is named start
   // and the other end. Preserve the input labels; reverse only the correspondence.
   const reverseB=shared.length===1&&shared[0][0]!==shared[0][1];
-  const result=estimated?placeRegistered(lines[0],reverseB?reverseLine(lines[1]):lines[1],{mode:$('countMode').value,count,minPitch,anchorEnds:distinct}):joined?placeJoined(...lines,{split:number('split',.1,99.9)/100,mode:$('countMode').value,count,minPitch}):place(lines[0],lines[1]||lines[0],{mode:$('countMode').value,count,minPitch});
+  const result=estimated?placeRegistered(lines[0],reverseB?reverseLine(lines[1]):lines[1],{mode:$('countMode').value,count,minPitch,anchorEnds:distinct,allowShort:true}):joined?placeJoined(...lines,{split:number('split',.1,99.9)/100,mode:$('countMode').value,count,minPitch}):place(lines[0],lines[1]||lines[0],{mode:$('countMode').value,count,minPitch,allowShort:true});
+  if(result.shortEndpoints)$('count').value=result.count;
   if(estimated){result.reversedRows=[false,reverseB];if(distinct)result.warning='控え後の始終点をC上の対応端として推定します。'+(reverseB?'共通の角を基準にBの穴の対応順を反転しています。':'')+result.warning;}
 
-  if(twoSided){result.referenceKind='selectedCurveC';result.warning='選択した一辺を基準線Cとして、同じC上の位置から内側・外側の穴を配置しています。'+(result.rows.some(r=>r.minChord<minPitch)?' 穴中心の直線距離が下限未満の箇所があります。':'');}
+  if(twoSided){result.referenceKind='selectedCurveC';result.warning=(result.shortEndpoints?'短い辺の例外：両端2穴を優先し、間隔は10mm未満になる場合があります。':'')+'選択した一辺を基準線Cとして、同じC上の位置から内側・外側の穴を配置しています。'+(result.rows.some(r=>r.minChord<minPitch)?' 穴中心の直線距離が下限未満の箇所があります。':'');}
   if($('seamMode').value==='single')result.rows=result.rows.slice(0,1);
   if(auto)$('count').value=joined?result.pairs[0].count:result.count;
   result.rows.forEach((row,j)=>{
