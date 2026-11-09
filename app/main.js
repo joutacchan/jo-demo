@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate,along,trimCADBacktracks} from './geometry.js?v=clear-two-taps-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate,along,trimCADBacktracks} from './geometry.js?v=physical-hole-count-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -81,7 +81,7 @@ function calculateSections(units,width,diameter,minPitch,count){
  const info=document.createElement('p');info.textContent=`${label}：#${start}〜#${end} ／ ${row.holes.length}穴 ／ 弧長ピッチ ${row.pitch.toFixed(3)}〜${row.maxPitch.toFixed(3)}mm${endpointInfo}`;$('stats').append(info);
  });
  state.autoWalls={};for(const entry of entries){if(entry.label===entry.name+(state.sectionSelected[entry.name]+1))for(const [end,index] of Object.entries(entry.line.autoWalls||{}))state.autoWalls[end+entry.name]=index;}renderCornerSelections();
- const summary=document.createElement('p');summary.textContent=result.sharedCorners?`共通Cの対応位置 ${result.count}個。A ${numbers.A}穴／B ${numbers.B}穴（区間の角穴を共有）。`:`A全体 ${result.count}穴 ↔ B全体 ${result.count}穴。区間順の共通Cに対応し、区間間の空きには穴を置きません。`;$('stats').prepend(summary);$('warning').textContent=result.warning;
+ const summary=document.createElement('p');summary.textContent=result.sharedCorners?`共通Cの対応位置 ${result.count}個。A ${result.physicalCounts?.A??numbers.A}穴／B ${result.physicalCounts?.B??numbers.B}穴（重なる角穴だけ共有）。`:`A全体 ${result.count}穴 ↔ B全体 ${result.count}穴。区間順の共通Cに対応し、区間間の空きには穴を置きません。`;$('stats').prepend(summary);$('warning').textContent=result.warning;
  if(result.valid){state.latest={result,lines:entries.map(e=>e.line),units,width,diameter,rowSources:entries.map(e=>state.pathSources[e.path]),rowPaths:entries.map(e=>e.path),rowNames:entries.map(e=>e.label),rowNumbers:entries.map(e=>[e.firstNumber,e.lastNumber])};$('save').disabled=false;$('saveAll').disabled=false;$('share').disabled=!navigator.canShare;$('fixSet').disabled=draftSignature()===state.committedSignature;if($('fixSet').disabled)for(const id of ['holes','guides','markers'])$(id).replaceChildren();}updateMarkerScale();
 }
 
@@ -216,7 +216,7 @@ function buildLine(name,units,draw=true,excluded=[]){
      line.autoWalls={...before.autoWalls,...line.autoWalls};state.autoWalls[endpoint+name]=line.autoWalls[endpoint];insets[endpoint]=amount;
     }else if(mode==='manual'||(mode==='offset'&&state.cache.get(key).total*Math.abs(end-start)/units<(number('pitch',10,1000)+2*amount))){line=trimLine(line,endpoint==='start'?amount*units:0,endpoint==='end'?amount*units:0);insets[endpoint]=amount;}
    }
-   line.insets=insets;line.cutRange=[start,end];line.cutLength=state.cache.get(key).total*Math.abs(end-start)/units;line.cutEndpoints=[cutPoint(state.cache.get(key),start),cutPoint(state.cache.get(key),end)];
+   line.curveKey=sectionCurve(captureSection(name)).key;line.insets=insets;line.cutRange=[start,end];line.cutLength=state.cache.get(key).total*Math.abs(end-start)/units;line.cutEndpoints=[cutPoint(state.cache.get(key),start),cutPoint(state.cache.get(key),end)];
 
    guide?.setAttribute('d',line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '));
    }catch(e){guide?.setAttribute('data-corner-error','true');throw Error(`線${name}：${e.message}`);}
@@ -226,7 +226,7 @@ return line;
 function recalculate(){
  // Migrate legacy pair values from undo/history to the common-reference method.
  if($('seamMode').value==='pair')$('seamMode').value='registered';
- const joinedMode=$('seamMode').value==='joined',singleMode=$('seamMode').value==='single',twoSided=$('seamMode').value==='twoSided';if(twoSided&&state.doc&&$('pathA').value!==''){const a=captureSection('A');showSection('B',a);$('sideA').value='auto';$('sideB').value='outside';for(const end of ['start','end'])$('corner'+end+'B').value='';}$('sideA').disabled=twoSided;$('estimateHint').hidden=!['registered','twoSided','sequence','pair'].includes($('seamMode').value);$('estimateHint').textContent=$('seamMode').value==='sequence'?'推定の仮定：異なる辺でA/Bの区間数が同じ場合は、番号順に控え後の始点・終点を対応させます。それ以外は累積カット線長の割合で共通Cへ対応させます。区間間の空きは除外します。通常は区間内の弧長ピッチ10mm以上。短い辺は控え後の両端2穴を優先します。実際の立体変形は再現しません。':twoSided?'基準線C＝選択した一辺。中間穴はC上の同じ位置へ垂線の足を揃え、端穴は各側の隣辺からの控えを優先します。実際の立体変形は再現しません。':'推定の仮定：控え後の対応端を揃え、その間のカット線長の同じ割合を共通Cの位置と扱います。共通の角がある場合は、始点・終点の名称に関わらずその角を対応させます。実際の3D形状・ねじれ・革の伸びは再現しません。';
+ const joinedMode=$('seamMode').value==='joined',singleMode=$('seamMode').value==='single',twoSided=$('seamMode').value==='twoSided';if(twoSided&&state.doc&&$('pathA').value!==''){const a=captureSection('A');showSection('B',a);$('sideA').value='auto';$('sideB').value='outside';for(const end of ['start','end'])$('corner'+end+'B').value='';}$('sideA').disabled=twoSided;$('estimateHint').hidden=!['registered','twoSided','sequence','pair'].includes($('seamMode').value);$('estimateHint').textContent=$('seamMode').value==='sequence'?'推定の仮定：異なる辺でA/Bの区間数が同じ場合は、番号順に控え後の始点・終点を対応させます。それ以外は累積カット線長の割合で共通Cへ対応させます。区間間には穴を置かず、控えで離れた端穴は別々に対応させます。通常は区間内の弧長ピッチ10mm以上。短い辺は控え後の両端2穴を優先します。実際の立体変形は再現しません。':twoSided?'基準線C＝選択した一辺。中間穴はC上の同じ位置へ垂線の足を揃え、端穴は各側の隣辺からの控えを優先します。実際の立体変形は再現しません。':'推定の仮定：控え後の対応端を揃え、その間のカット線長の同じ割合を共通Cの位置と扱います。共通の角がある場合は、始点・終点の名称に関わらずその角を対応させます。実際の3D形状・ねじれ・革の伸びは再現しません。';
  $('singleModeButton').setAttribute('aria-pressed',singleMode);$('pairModeButton').setAttribute('aria-pressed',!singleMode);
  $('mode').querySelector('option[value=B]').disabled=singleMode||twoSided;[...$('active').options].find(o=>o.value==='B').disabled=singleMode||twoSided;if((singleMode||twoSided)&&$('active').value==='B')$('active').value='A';if((singleMode||twoSided)&&$('mode').value==='B')$('mode').value='A';
  if($('active').value==='C')$('active').value='A';if($('mode').value==='C')$('mode').value='pan';
