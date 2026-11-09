@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate} from './geometry.js?v=short-endpoints-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate} from './geometry.js?v=selected-wall-corners-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -192,7 +192,7 @@ function buildLine(name,units,draw=true,excluded=[]){
     corners[endpoint]=offsetLine(state.cache.get(neighborKey),0,1,offset*units,resolveSide($('cornerSide'+endpoint+name).value,neighbor));
    }
    if(corners.start||corners.end)line=alignCorners(line,corners);
-   const allWalls=state.paths.flatMap((p,i)=>{if(i===idx||members.includes(i)||!sameRegion(i,idx)||excluded.includes(i)||activeNames().some(n=>n!==name&&(+$('path'+n).value===i||curveMembers(n).includes(i))))return [];const k=i+':'+units;if(!state.cache.has(k))state.cache.set(k,prepare(p,units));return [{index:i,prepared:state.cache.get(k)}];});
+   const allWalls=state.paths.flatMap((p,i)=>{if(i===idx||members.includes(i)||!sameRegion(i,idx))return [];const k=i+':'+units;if(!state.cache.has(k))state.cache.set(k,prepare(p,units));return [{index:i,prepared:state.cache.get(k)}];});
    const insets={};
    for(const endpoint of ['start','end']){
     if($('corner'+endpoint+name).value!=='')continue;
