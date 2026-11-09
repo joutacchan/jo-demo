@@ -43,6 +43,25 @@ export function parsePath(d) {
 export function evaluate(controls,t){
   let p=controls;while(p.length>1)p=p.slice(0,-1).map((v,i)=>mix(v,p[i+1],t));return p[0];
 }
+// Remove only sub-micron endpoint backtracks from calculation geometry. The
+// source SVG document remains unchanged; subdivision preserves the retained curve.
+export function trimCADBacktracks(path,units=1){
+ const trimStart=c=>{
+  if(c.length!==4)return c;
+  const o=c[0],h={x:c[1].x-o.x,y:c[1].y-o.y},v={x:c[2].x-o.x,y:c[2].y-o.y},dot=(p)=> (p.x-o.x)*v.x+(p.y-o.y)*v.y;
+  if(h.x*v.x+h.y*v.y>=0||Math.hypot(v.x,v.y)<1e-9)return c;
+  let hi=1/65536;while(hi<.02&&dot(evaluate(c,hi))<=0)hi*=2;
+  if(hi>=.02||dot(evaluate(c,hi))<=0)return c;
+  let lo=hi/2;for(let k=0;k<35;k++){const m=(lo+hi)/2;if(dot(evaluate(c,m))>0)hi=m;else lo=m;}
+  let t=(lo+hi)/2;const norm=Math.hypot(v.x,v.y);
+  while(t<.02){const d=tangent(c,t);if((d.x*v.x+d.y*v.y)/norm>=Math.cos(Math.PI/36))break;t*=1.1;}
+  if(t>=.02)return c;
+  if(distance(evaluate(c,t),o)>.001*units||Array.from({length:16},(_,i)=>distance(evaluate(c,t*i/16),o)).some(d=>d>.001*units))return c;
+  let level=c,right=[c.at(-1)];while(level.length>1){level=level.slice(0,-1).map((p,i)=>mix(p,level[i+1],t));right.unshift(level.at(-1));}return right;
+ };
+ const segments=path.segments.map(c=>trimStart([...trimStart(c)].reverse()).reverse());
+ return {...path,start:segments[0][0],segments};
+}
 export function tangent(controls,t){
   let v=controls.slice(0,-1).map((p,i)=>point(controls[i+1].x-p.x,controls[i+1].y-p.y));
   let d=evaluate(v,t),length=Math.hypot(d.x,d.y);

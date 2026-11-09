@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate,along} from './geometry.js?v=shared-corner-ends-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate,along,trimCADBacktracks} from './geometry.js?v=whole-edge-clear-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -245,7 +245,11 @@ function recalculate(){
  renderCornerSelections();
  try{
   if(!state.doc)return;
-  if(activeNames().some(n=>$('path'+n).value==='')){$('warning').textContent='A/Bの辺を選んでください。固定した配置は残っています。';return;}
+  if(activeNames().some(n=>$('path'+n).value==='')){
+   const selected=activeNames().filter(n=>$('path'+n).value!=='');
+   for(const name of selected){const index=+$('path'+name).value,path=editorPath(name,index);node('path',{d:pathD(path),stroke:colors[name],'data-line':name,'data-selection-preview':name},$('guides'));}
+   $('warning').textContent=selected.length?`線${selected.join('・')}を選択しました。残りの辺を選んでください。`:'A/Bの辺を選んでください。固定した配置は残っています。';return;
+  }
   renderFixed();
   const width=number('width',1,10000);for(let i=1;i<state.sources.length;i++)number('width'+(i+1),1,10000);rebuildScene();renderFixed();
   $('joinedSettings').hidden=$('seamMode').value!=='joined';$('countLabel').textContent=$('seamMode').value==='sequence'?'片側の総穴数':singleMode?'穴数':joinedMode?'各組の穴数':'片側の穴数';
@@ -332,7 +336,7 @@ function validateDocument(doc){
   }else parsed=parsePath(el.getAttribute('d')||'');
   const map=p=>({x:matrix.a*p.x+matrix.c*p.y+matrix.e,y:matrix.b*p.x+matrix.d*p.y+matrix.f});
   return parsed.map(p=>({...p,start:map(p.start),segments:p.segments.map(c=>c.map(map))}));
- }).flatMap(splitSharpPath);
+ }).map(p=>trimCADBacktracks(p,box[2]/210)).flatMap(splitSharpPath);
  if(paths.length<1||paths.length>1000)throw Error('1〜1000本のサブパスを含むSVGを指定してください。');
  return {box,paths};
 }
