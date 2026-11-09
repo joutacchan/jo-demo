@@ -352,7 +352,7 @@ export function placeSequences(a,b,{mode='auto',count,minPitch=10}={}){
 // Approximation: the same normalized cut-edge station maps to the same assembled seam station.
 // Disconnected sections share one cumulative cut-length coordinate (gaps excluded).
 // Each station belongs to one section on each side; never space across a gap.
-export function placeRegisteredSequences(a,b,{mode='auto',count,minPitch=10,anchorEnds=false,sectionLabels={},allowShort=false}={}){
+export function placeRegisteredSequences(a,b,{mode='auto',count,minPitch=10,anchorEnds=false,sectionLabels={},allowShort=false,shareCorners=false}={}){
  if(!Number.isFinite(minPitch)||minPitch<10)throw Error('最小ピッチは10mm以上にしてください。');
  if(!a.length||!b.length)throw Error('AとBにそれぞれ区間を追加してください。');
  // Equal section counts identify paired intervals. Give both sides the same
@@ -384,6 +384,45 @@ export function placeRegisteredSequences(a,b,{mode='auto',count,minPitch=10,anch
   return x.q+(y.q-x.q)*(value-x.s)/(y.before-x.s);
  };
  const pa=profiles(a),pb=profiles(b),stations=[],last=[new Map(),new Map()],pitch=minPitch+.0001;
+ // Unequal section counts share a corner station instead of moving an endpoint
+ // to make independently counted rows fit. Preserve the original C coordinate.
+ if(shareCorners&&anchorEnds&&a.length!==b.length){
+  const cells=[];let i=0,j=0;
+  while(i<pa.length&&j<pb.length){
+   const pair=[pa[i],pb[j]],lo=Math.max(pair[0].lo,pair[1].lo),hi=Math.min(pair[0].hi,pair[1].hi);
+   if(hi>lo+1e-12){
+    const qs=[...new Set([lo,hi,...pair.flatMap(p=>p.points.map(k=>k.q).filter(q=>q>lo&&q<hi))])].sort((x,y)=>x-y);
+    let length=0;const metric=qs.map((q,k)=>{if(k)length+=Math.min(...pair.map(p=>interpolate(p.points,q,'q','s')-interpolate(p.points,qs[k-1],'q','s')));return {q,s:length,before:length};});
+    const short=length<minPitch;
+    if(short&&!allowShort)throw Error('共有する角の間隔が最小ピッチ未満です。');
+    cells.push({pair,lo,hi,metric,length,short,n:Math.max(2,Math.floor(length/pitch)+1)});
+   }
+   if(pa[i].hi<=pb[j].hi)i++;else j++;
+  }
+  if(!cells.length)throw Error('対応する共通の縫合区間がありません。');
+  const refsFor=c=>Array.from({length:c.n},(_,k)=>k===0?c.lo:k===c.n-1?c.hi:interpolate(c.metric,c.length*k/(c.n-1),'s','q'));
+  const unique=qs=>qs.sort((x,y)=>x-y).filter((q,k,arr)=>!k||q-arr[k-1]>1e-10);
+  if(cells.reduce((n,c)=>n+c.n,0)>100000)throw Error('共通Cの角穴候補が多すぎます。区間を短くしてください。');
+  const capacity=unique(cells.flatMap(refsFor)).length,minimum=unique(cells.flatMap(c=>[c.lo,c.hi])).length;
+  const requested=mode==='auto'?Math.min(1000,capacity):count;
+  if(!Number.isInteger(requested)||requested<minimum||requested>capacity||requested>1000)throw Error(`角を共有する穴数は${minimum}〜${Math.min(1000,capacity)}で指定してください。`);
+  for(let n=capacity;n>requested;n--){const candidates=cells.filter(c=>c.n>2).sort((x,y)=>x.length/(x.n-1)-y.length/(y.n-1));if(!candidates.length)throw Error('角穴を残せる穴数にしてください。');candidates[0].n--;}
+  const samples=cells.flatMap(c=>refsFor(c).map(q=>({q,pair:c.pair,short:c.short})));
+  const references=unique(samples.map(s=>s.q)),sideRows={};
+  for(const [side,lines,name] of [[0,a,'A'],[1,b,'B']])sideRows[name]=lines.map((line,index)=>{
+   const selected=samples.filter(s=>s.pair[side].index===index).filter((s,k,arr)=>!k||Math.abs(s.q-arr[k-1].q)>1e-10);
+   if(selected.length<2)throw Error(`${name}${index+1}の端穴を共有できません。`);
+   const positions=selected.map(s=>interpolate(s.pair[side].points,s.q,'q','s'));
+   const holes=selected.map((s,k)=>({...along(line,positions[k]*line.units),seamReference:s.q}));
+   const pitches=positions.slice(1).map((s,k)=>s-positions[k]),chords=holes.slice(1).map((p,k)=>distance(p,holes[k])/line.units);
+   // Only adjacent mandatory corner stations may use the short-edge exception.
+   const valid=pitches.every((p,k)=>p>=minPitch-1e-6||(allowShort&&p>1e-8&&cells.some(c=>c.short&&Math.abs(c.lo-selected[k].q)<1e-10&&Math.abs(c.hi-selected[k+1].q)<1e-10)));
+   return {holes,pitch:Math.min(...pitches),maxPitch:Math.max(...pitches),minChord:Math.min(...chords),maxChord:Math.max(...chords),valid};
+  });
+  const rows=[...sideRows.A,...sideRows.B];
+  return {count:references.length,rows,sideRows,references,anchorEnds,estimated:true,sharedCorners:true,shortEndpoints:cells.some(c=>c.short),referenceKind:'orderedCutC',valid:rows.every(r=>r.valid),warning:'角穴を共通C上で共有し、各区間の控え後の両端を保持しています。共有する角は1つの対応位置として数えます。'+(cells.some(c=>c.short)?'短い角間は両端2穴を優先するため10mm未満です。':'')+'実際の3D形状・伸び・ねじれは未再現です。'};
+ }
+
  let i=0,j=0;
  while(i<pa.length&&j<pb.length){
   const pair=[pa[i],pb[j]],lo=Math.max(pair[0].lo,pair[1].lo),hi=Math.min(pair[0].hi,pair[1].hi);
@@ -449,7 +488,7 @@ export function placeRegisteredSequences(a,b,{mode='auto',count,minPitch=10,anch
  return {count:stations.length,rows,sideRows,references:stations.map(s=>s.q),anchorEnds,estimated:true,referenceKind:'orderedCutC',valid:rows.every(r=>r.valid),shortEndpoints:stations.some(s=>s.shortPair),warning:(stations.some(s=>s.shortPair)?'短い辺の例外：控え後の両端に2穴を配置しました。対応穴の間隔は10mm未満になる場合があります。':'')+(sharedLengths?'対応する区間ごとに、控え後の始点・終点を揃えています。':'')+'推定対応：区間順につないだ'+(anchorEnds?'控え後の':'')+'カット線の累積長の同じ割合を共通Cの位置と仮定します。区間間の空きは除外します。同じ辺を共有する場合や区間境界では、C対応により指定端と実穴が異なる場合があります。実際の3D形状・ねじれ・伸びは未再現です。'+(rows.some(r=>r.minChord<minPitch)?' 穴中心の直線距離が下限未満の箇所があります。':'')};
 }
 
-export function placeRegistered(a,b,{mode='auto',count=13,minPitch=10,anchorEnds=false,allowShort=false}={}){
+export function placeRegistered(a,b,{mode='auto',count=13,minPitch=10,anchorEnds=false,allowShort=false,endpointPriority=false}={}){
  if(!Number.isFinite(minPitch)||minPitch<10)throw Error('最小ピッチは10mm以上にしてください。');
  const profile=line=>{const [start,end]=anchorEnds?[line.points[0].reference,line.points.at(-1).reference]:line.cutRange||[0,1],points=line.points.map(p=>({q:(p.reference-start)/(end-start),s:p.s}));if(points.some(p=>!Number.isFinite(p.q)))throw Error('推定対応で基準位置を追跡できません。角合わせ・壁への延長を解除して元カット線内の区間を使ってください。');if(points.some((p,i)=>i&&p.q<points[i-1].q-1e-8))throw Error('基準線の対応が逆転しています。区間を短くしてください。');const result=[];for(const p of points){if(result.length&&p.q-result.at(-1).q<1e-10)result[result.length-1]=p;else result.push(p);}if(result.length<2)throw Error('推定できる区間が短すぎます。');return result;};
  const pa=profile(a),pb=profile(b),lo=Math.max(pa[0].q,pb[0].q,0),hi=Math.min(pa.at(-1).q,pb.at(-1).q,1);if(hi<=lo)throw Error('対応する共通の縫合区間がありません。');
@@ -458,6 +497,6 @@ export function placeRegistered(a,b,{mode='auto',count=13,minPitch=10,anchorEnds
  const short=allowShort&&Math.min(a.len/a.units,b.len/b.units)<minPitch;
  const capacity=short?2:Math.min(1000,Math.floor(total/(minPitch+.0001))+1);if(short)count=2;if(mode==='auto')count=capacity;if(!Number.isInteger(count)||count<2||count>capacity)throw Error('共通の縫合位置と最小ピッチを満たす穴数にできません。区間を広げるか穴数を減らしてください。');
  const references=Array.from({length:count},(_,i)=>{const target=total*i/(count-1);if(i===count-1)return hi;let l=1,r=knots.length-1;while(l<r){const m=(l+r)>>1;if(knots[m].s<target)l=m+1;else r=m;}const x=knots[l-1],y=knots[l];return x.q+(y.q-x.q)*(target-x.s)/(y.s-x.s||1);});
- const rows=[[a,pa],[b,pb]].map(([line,ps])=>{const positions=references.map(q=>at(ps,q)),holes=positions.map((s,i)=>({...along(line,s),seamReference:references[i]})),pitches=positions.slice(1).map((s,i)=>(s-positions[i])/line.units),chords=holes.slice(1).map((p,i)=>distance(p,holes[i])/line.units);return {holes,pitch:Math.min(...pitches),maxPitch:Math.max(...pitches),minChord:Math.min(...chords),maxChord:Math.max(...chords)};});
- return {count,rows,references,anchorEnds,referenceRanges:[a,b].map(line=>anchorEnds?[line.points[0].reference,line.points.at(-1).reference]:line.cutRange||[0,1]),valid:short||rows.every(r=>r.pitch>=minPitch-1e-6),shortEndpoints:short,warning:(short?'短い辺の例外：控え後の対応端に2穴を配置しました。間隔は10mm未満になる場合があります。':'')+'推定対応：両カット線の同じ割合を、組み上がりの同じ縫合位置と仮定。実際の3D形状・伸びは未検証です。'+(rows.some(r=>r.minChord<minPitch)?' 穴中心の直線距離が下限未満の箇所があります。':''),estimated:true};
+ const rows=[[a,pa],[b,pb]].map(([line,ps])=>{const positions=references.map(q=>at(ps,q));if(endpointPriority){positions[0]=0;positions[positions.length-1]=line.len;}const holes=positions.map((s,i)=>({...along(line,s),seamReference:references[i],...(endpointPriority&&(i===0||i===positions.length-1)?{endpointException:true}:{})})),pitches=positions.slice(1).map((s,i)=>(s-positions[i])/line.units),chords=holes.slice(1).map((p,i)=>distance(p,holes[i])/line.units);return {holes,pitch:Math.min(...pitches),maxPitch:Math.max(...pitches),minChord:Math.min(...chords),maxChord:Math.max(...chords)};});
+ return {count,rows,references,anchorEnds,endpointPriority,referenceRanges:[a,b].map(line=>anchorEnds?[line.points[0].reference,line.points.at(-1).reference]:line.cutRange||[0,1]),valid:short||rows.every(r=>r.pitch>=minPitch-1e-6),shortEndpoints:short,warning:(short?'短い辺の例外：控え後の対応端に2穴を配置しました。間隔は10mm未満になる場合があります。':'')+'推定対応：両カット線の同じ割合を、組み上がりの同じ縫合位置と仮定。実際の3D形状・伸びは未検証です。'+(rows.some(r=>r.minChord<minPitch)?' 穴中心の直線距離が下限未満の箇所があります。':''),estimated:true};
 }
