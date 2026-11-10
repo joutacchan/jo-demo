@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate,along,trimCADBacktracks} from './geometry.js?v=dual-region-walls-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate,along,trimCADBacktracks} from './geometry.js?v=three-edge-selection-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -156,7 +156,7 @@ function curveChain(index){const si=state.pathSources[index],source=state.source
   return length>1e-10?{x:dx/length,y:dy/length}:tangent(c,end?1:0);
  };
  const joins=(a,b)=>{const last=a.at(-1),head=b[0];if(distance(last.at(-1),head[0])>tol)return false;const u=tangent(last,1),v=tangent(head,0),x=localDirection(last,true),y=localDirection(head,false),limit=Math.cos(Math.PI/12)-1e-9;return u.x*v.x+u.y*v.y>=limit&&x.x*y.x+x.y*y.y>=limit;};
- for(const prepend of [false,true])for(let step=0;step<part.indices.length;step++){const current=segments(prepend?members[0]:members.at(-1)),candidates=[],junction=prepend?current[0][0]:current.at(-1).at(-1);const incident=part.indices.reduce((n,local)=>{const path=state.paths[first+local];return n+(distance(path.start,junction)<=tol?1:0)+(distance(path.segments.at(-1).at(-1),junction)<=tol?1:0);},0);if(incident!==2)break;for(const local of part.indices){const i=first+local;if(used.has(i)||(source.inside[local]!=null)!==(source.inside[index-first]!=null))continue;for(const reverse of [false,true]){const m={index:i,reverse},cs=segments(m);if(prepend?joins(cs,current):joins(current,cs))candidates.push(m);}}
+ for(const prepend of [false,true])for(let step=0;step<part.indices.length;step++){const current=segments(prepend?members[0]:members.at(-1)),candidates=[],junction=prepend?current[0][0]:current.at(-1).at(-1);if((source.selectionJunctions||[]).some(p=>distance(junction,{x:p.x*source.scale+source.tx,y:p.y*source.scale+source.ty})<=tol))break;const incident=part.indices.reduce((n,local)=>{const path=state.paths[first+local];return n+(distance(path.start,junction)<=tol?1:0)+(distance(path.segments.at(-1).at(-1),junction)<=tol?1:0);},0);if(incident!==2)break;for(const local of part.indices){const i=first+local;if(used.has(i)||(source.inside[local]!=null)!==(source.inside[index-first]!=null))continue;for(const reverse of [false,true]){const m={index:i,reverse},cs=segments(m);if(prepend?joins(cs,current):joins(current,cs))candidates.push(m);}}
  if(candidates.length!==1)break;const m=candidates[0];used.add(m.index);if(prepend)members.unshift(m);else members.push(m);}
  return members.length>1?{sourceId:source.id,members:members.map(m=>({local:m.index-first,reverse:m.reverse}))}:null;
 }
@@ -388,10 +388,10 @@ function enclosedRegions(paths,units){
  const contains=(f,p)=>{let v=false;for(let i=0;i<f.points.length;i++){const a=f.points[i],b=f.points[(i+1)%f.points.length];if((a.y>p.y)!==(b.y>p.y)&&p.x<(b.x-a.x)*(p.y-a.y)/(b.y-a.y)+a.x)v=!v;}return v;};
  // Nested closed loops remain holes of the containing part.
  const outer=faces.filter(f=>!faces.some(q=>q!==f&&q.area>f.area+tol*tol&&f.points.every(p=>contains(q,p))));
- const resultPaths=[],parts=[],inside=[];const used=new Set();
+ const resultPaths=[],parts=[],inside=[];const used=new Set(),selectionJunctions=nodes.filter(n=>n.out.length>2).map(n=>n.p);
  outer.forEach(f=>{
   const pieces=f.ring.map(h=>{used.add(h.edge.id);return {segments:h.reverse?[...h.edge.path.segments].reverse().map(c=>[...c].reverse()):h.edge.path.segments};});
-  const joins=(a,b)=>{const last=a.segments.at(-1),first=b.segments[0],u=tangent(last,1),v=tangent(first,0);return distance(last.at(-1),first[0])<=tol&&u.x*v.x+u.y*v.y>=Math.cos(Math.PI/12)-1e-9;};
+  const joins=(a,b)=>{const last=a.segments.at(-1),first=b.segments[0],u=tangent(last,1),v=tangent(first,0);return !selectionJunctions.some(p=>distance(p,last.at(-1))<=tol)&&distance(last.at(-1),first[0])<=tol&&u.x*v.x+u.y*v.y>=Math.cos(Math.PI/12)-1e-9;};
   const firstBreak=pieces.findIndex((p,i)=>!joins(p,pieces[(i+1)%pieces.length]));
   const ordered=firstBreak<0?pieces:[...pieces.slice(firstBreak+1),...pieces.slice(0,firstBreak+1)],runs=[];
   for(const piece of ordered){if(runs.length&&joins(runs.at(-1),piece))runs.at(-1).segments.push(...piece.segments);else runs.push({segments:[...piece.segments]});}
@@ -399,7 +399,7 @@ function enclosedRegions(paths,units){
  });
  edges.forEach(e=>{if(used.has(e.id))return;const p=evaluate(e.path.segments[0],.5);const owner=parts.filter(p=>p.face&&contains(p.face,evaluate(e.path.segments[0],.5))).sort((a,b)=>a.face.area-b.face.area)[0];if(owner){owner.indices.push(resultPaths.length);resultPaths.push(e.path);inside.push(null);}else{parts.push({indices:[resultPaths.length],face:null});resultPaths.push(e.path);inside.push(null);}});
  for(const part of parts){const ps=part.indices.flatMap(i=>resultPaths[i].segments.flat()),xs=ps.map(p=>p.x),ys=ps.map(p=>p.y);part.box=[Math.min(...xs),Math.min(...ys),Math.max(...xs)-Math.min(...xs),Math.max(...ys)-Math.min(...ys)];delete part.face;}
- if(resultPaths.length>1000)throw Error('領域分割後の辺が1000本を超えます。');return {paths:resultPaths,parts,inside};
+ if(resultPaths.length>1000)throw Error('領域分割後の辺が1000本を超えます。');return {paths:resultPaths,parts,inside,selectionJunctions};
 }
 function detectParts(paths,units){
  const parent=paths.map((_,i)=>i),root=i=>parent[i]===i?i:parent[i]=root(parent[i]),tol=.01*units,cells=new Map();
@@ -486,7 +486,7 @@ function readSource(text,name){
   }
   try{const sides=interiorSides(indices.map(i=>paths[i]),box[2]/210,.01);indices.forEach((i,k)=>inside[i]=sides[k]);}catch(e){insideError=e.message;}
  }
- return {doc,text,name,box,paths,inside,insideError,parts,regionSplit:!!regions,id:++sourceSequence};
+ return {doc,text,name,box,paths,inside,insideError,parts,selectionJunctions:regions?.selectionJunctions||[],regionSplit:!!regions,id:++sourceSequence};
 }
 function rebuildScene(force=false){
  if(!state.sources.length)return;
