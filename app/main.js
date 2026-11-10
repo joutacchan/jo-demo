@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate,along,trimCADBacktracks} from './geometry.js?v=stable-side-switch-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate,along,trimCADBacktracks} from './geometry.js?v=dual-region-walls-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -169,8 +169,18 @@ function oppositeRegionWalls(index,line,endpoint,units,prepared){
  const probe=along(line,endpoint==='start'?Math.min(line.len/2,6*units):Math.max(line.len/2,line.len-6*units));
  const contains=part=>{let inside=false;for(const local of part.indices){const path=state.paths[first+local];for(const c of path.segments){const steps=c.length===2?1:32;for(let k=0;k<steps;k++){const a=evaluate(c,k/steps),b=evaluate(c,(k+1)/steps);if((a.y>probe.y)!==(b.y>probe.y)&&probe.x<(b.x-a.x)*(probe.y-a.y)/(b.y-a.y)+a.x)inside=!inside;}}}return inside;};
  const part=source.parts.find(p=>!p.indices.includes(index-first)&&contains(p));if(!part)return null;
- const sourceWall=[{prepared}];
- return part.indices.flatMap(local=>{const i=first+local,p=state.paths[i],wall=prepare(p,units);if(distanceToWalls(p.start,sourceWall)<.02*units&&distanceToWalls(p.segments.at(-1).at(-1),sourceWall)<.02*units&&distanceToWalls(cutPoint(wall,.5),sourceWall)<.02*units)return [];return [{index:i,prepared:wall}];});
+ const sourceWall=[{prepared}],ends=[prepared.path.start,prepared.path.segments.at(-1).at(-1)];
+ return part.indices.flatMap(local=>{
+  const i=first+local,p=state.paths[i],cs=p.segments,nodes=[cs[0][0],...cs.map(c=>c.at(-1))],shared=new Set();
+  // The neighboring face may merge C and its adjacent walls into one smooth
+  // path. Remove only C's subchain, keeping the real end walls. CAD copies can
+  // differ slightly inside while sharing their endpoint vertices.
+  for(let a=0;a<nodes.length;a++)for(let b=a+1;b<nodes.length;b++){
+   const matching=ends.some((end,k)=>distance(nodes[a],end)<.02*units&&distance(nodes[b],ends[1-k])<.02*units);
+   if(matching&&cs.slice(a,b).every(c=>Array.from({length:17},(_,j)=>evaluate(c,j/16)).every(q=>distanceToWalls(q,sourceWall)<.1*units)))for(let j=a;j<b;j++)shared.add(j);
+  }
+  return cs.flatMap((c,j)=>shared.has(j)?[]:[{index:i,prepared:prepare({start:c[0],segments:[c],closed:false},units)}]);
+ });
 }
 function buildLine(name,units,draw=true,excluded=[],section=captureSection(name)){
    // Read the section directly: calculations must never cycle the visible form.
@@ -220,7 +230,7 @@ function buildLine(name,units,draw=true,excluded=[],section=captureSection(name)
    line.curveKey=sectionCurve(section).key;line.insets=insets;line.cutRange=[start,end];line.cutLength=state.cache.get(key).total*Math.abs(end-start)/units;line.cutEndpoints=[cutPoint(state.cache.get(key),start),cutPoint(state.cache.get(key),end)];
 
    guide?.setAttribute('d',line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '));
-   }catch(e){guide?.setAttribute('data-corner-error','true');throw Error(`線${name}：${e.message}`);}
+   }catch(e){guide?.setAttribute('data-corner-error','true');const label=$('seamMode').value==='twoSided'?(name==='B'?'外側':'内側'):`線${name}`;throw Error(`${label}：${e.message}`);}
 
 return line;
 }

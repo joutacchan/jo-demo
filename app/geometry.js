@@ -41,7 +41,10 @@ export function parsePath(d) {
   return paths;
 }
 export function evaluate(controls,t){
-  let p=controls;while(p.length>1)p=p.slice(0,-1).map((v,i)=>mix(v,p[i+1],t));return p[0];
+  // Evaluate from the nearer endpoint. Near t=1, subtracting almost equal
+  // derivative components loses the tangent direction at repeated end handles.
+  const reverse=t>.5,u=reverse?1-t:t;
+  let p=reverse?[...controls].reverse():controls;while(p.length>1)p=p.slice(0,-1).map((v,i)=>mix(v,p[i+1],u));return p[0];
 }
 // Remove only sub-micron endpoint backtracks from calculation geometry. The
 // source SVG document remains unchanged; subdivision preserves the retained curve.
