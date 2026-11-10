@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate,along,trimCADBacktracks} from './geometry.js?v=physical-hole-count-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate,along,trimCADBacktracks} from './geometry.js?v=manual-multi-select-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -45,8 +45,8 @@ const sectionFields=['path','side','start','end','snap','offset','cornerstart','
 function captureSection(name){const values=Object.fromEntries(sectionFields.map(k=>{const e=$(k+name);return [k,e.type==='checkbox'?e.checked:e.value];})),i=+values.path,si=state.pathSources[i];return {chain:structuredClone(state.chains[name]),values,sourceId:state.sources[si]?.id,local:i-state.pathSources.indexOf(si)};}
 function sectionPath(section){const si=state.sources.findIndex(s=>s.id===section.sourceId);if(si<0||!state.sources[si].paths[section.local])throw Error('原本が変更された区間があります。その区間を削除して追加し直してください。');return state.pathSources.indexOf(si)+section.local;}
 function showSection(name,section){const path=sectionPath(section);state.chains[name]=structuredClone(section.chain||null);for(const [key,value] of Object.entries(section.values)){const e=$(key+name);if(e.type==='checkbox')e.checked=value;else e.value=key==='path'?path:value;}syncRanges(name);}
-function persistSections(){if($('seamMode').value!=='sequence'||!state.sections||!state.sectionModeActive)return;for(const name of ['A','B']){const old=state.sections[name][state.sectionSelected[name]];if(old&&state.sources.some(s=>s.id===old.sourceId))state.sections[name][state.sectionSelected[name]]=captureSection(name);}}
-function renderSections(){if($('seamMode').value==='sequence'&&['A','B'].some(n=>$('path'+n).value==='')){for(const name of ['A','B'])$('sections'+name).hidden=true;return;}const enabled=$('seamMode').value==='sequence',entering=enabled&&!state.sectionModeActive;const existing=!!state.sections;if(enabled&&!state.sections){state.sections={A:[captureSection('A')],B:[captureSection('B')]};state.sectionSelected={A:0,B:0};}if(entering&&existing)for(const name of ['A','B'])try{showSection(name,state.sections[name][state.sectionSelected[name]]);}catch(e){message(e.message);}state.sectionModeActive=enabled;for(const name of ['A','B']){const option=[...$('active').options].find(o=>o.value===name);if(option){option.value=name;option.textContent=enabled?name+(state.sectionSelected[name]+1):name;}}
+function persistSections(){if($('seamMode').value!=='sequence'||!state.sections||!state.sectionModeActive)return;for(const name of ['A','B']){const old=state.sections[name][state.sectionSelected[name]];if($('path'+name).value!==''&&(!old||state.sources.some(s=>s.id===old.sourceId)))state.sections[name][state.sectionSelected[name]]=captureSection(name);}}
+function renderSections(){const enabled=$('seamMode').value==='sequence',entering=enabled&&!state.sectionModeActive;const existing=!!state.sections;if(enabled&&!state.sections){state.sections=Object.fromEntries(['A','B'].map(n=>[n,$('path'+n).value===''?[]:[captureSection(n)]]));state.sectionSelected={A:0,B:0};}if(entering&&existing)for(const name of ['A','B'])try{const section=state.sections[name][state.sectionSelected[name]];if(section)showSection(name,section);}catch(e){message(e.message);}state.sectionModeActive=enabled;for(const name of ['A','B']){const option=[...$('active').options].find(o=>o.value===name);if(option){option.value=name;option.textContent=enabled?name+(state.sectionSelected[name]+1):name;}}
  for(const name of ['A','B']){const panel=$('sections'+name);panel.hidden=!enabled;if(!enabled)continue;const list=$('sectionList'+name);list.replaceChildren();state.sections[name].forEach((section,i)=>{const row=document.createElement('div');row.className='section-row';const edit=document.createElement('button');let caption='原本変更・再追加が必要';try{caption=pathLabel(sectionPath(section));}catch{}edit.textContent=`${name}${i+1} · ${caption}：${section.values.start}% → ${section.values.end}%${i===state.sectionSelected[name]?'（編集中）':''}`;edit.setAttribute('aria-pressed',String(i===state.sectionSelected[name]));edit.onclick=()=>{persistSections();state.sectionSelected[name]=i;$('active').value=name;if(lineNames.includes($('mode').value))$('mode').value=name;try{showSection(name,section);}catch(e){message(e.message);}calculate();};row.append(edit);
  for(const [text,delta] of [['↑',-1],['↓',1],['削除',0]]){const b=document.createElement('button');b.textContent=text;b.setAttribute('aria-label',`${name}${i+1} ${text}`);b.disabled=delta?i+delta<0||i+delta>=state.sections[name].length:state.sections[name].length===1;b.onclick=()=>{persistSections();const sections=state.sections[name];if(delta)[sections[i],sections[i+delta]]=[sections[i+delta],sections[i]];else sections.splice(i,1);state.sectionSelected[name]=delta?i+delta:Math.min(i,sections.length-1);showSection(name,sections[state.sectionSelected[name]]);calculate();};row.append(b);}list.append(row);});
  document.querySelector(`.line[data-name=${name}] h3`).textContent=`線${name} · ${name}${state.sectionSelected[name]+1}を編集中`;
@@ -233,7 +233,7 @@ function recalculate(){
  state.autoWalls={};state.calculations++;state.latest=null;$('fixSet').disabled=true;$('save').disabled=!state.fixed.length;$('share').disabled=!state.fixed.length||!navigator.canShare;renderFixed();$('warning').textContent='';$('stats').replaceChildren();$('saveAll').disabled=!state.fixed.length;
  for(const id of ['guides','holes','markers'])$(id).replaceChildren();
  for(const name of lineNames){
-  if(name!=='C'){const empty=['A','B'].some(n=>$('path'+n).value==='');$('addSection'+name).disabled=empty;$('splitSection'+name).disabled=empty;}
+  if(name!=='C'){const empty=$('path'+name).value==='';$('addSection'+name).disabled=empty;$('splitSection'+name).disabled=empty;}
   document.querySelector(`.line[data-name=${name}]`).hidden=!activeNames().includes(name)||(twoSided&&name==='B');
   document.querySelector(`.line[data-name=${name}] h3`).textContent=$('seamMode').value==='joined'?({A:'A · つなぐ長い辺',B:'B · 前半につなぐ辺',C:'C · 後半につなぐ辺'}[name]):'線'+name;
   for(const end of ['start','end'])$('inset'+end+name).disabled=$('insetMode'+end+name).value!=='manual';
@@ -248,11 +248,12 @@ function recalculate(){
   if(activeNames().some(n=>$('path'+n).value==='')){
    const selected=activeNames().filter(n=>$('path'+n).value!==''),pending=activeNames().filter(n=>$('path'+n).value===''),errors=[];
    const units=state.sources[0].box[2]/number('width',1,10000);
-   for(const name of selected){try{const line=buildLine(name,units);$('guides').lastElementChild?.setAttribute('data-selection-preview',name);
-    for(const [p,end] of [[line.points[0],'start'],[line.points.at(-1),'end']]){const marker=node('g',{'data-endpoint':end+name,'data-x':p.x,'data-y':p.y},$('markers'));node('circle',{cx:0,cy:0,r:5,fill:colors[name]},marker);node('text',{x:8,y:-8},marker).textContent=name+(end==='start'?'始点':'終点');}
-   }catch(e){errors.push(e.message);}}
+   for(const name of selected){const saved=captureSection(name),sections=$('seamMode').value==='sequence'?state.sections[name]:[saved];
+    try{for(const [i,section] of sections.entries()){try{showSection(name,section);const path=sectionPath(section),line=buildLine(name,units),guide=$('guides').lastElementChild;guide?.setAttribute('data-selection-preview',name);guide?.setAttribute('data-path',path);
+     for(const [p,end] of [[line.points[0],'start'],[line.points.at(-1),'end']]){const marker=node('g',{'data-endpoint':end+name,'data-path':path,'data-x':p.x,'data-y':p.y},$('markers'));node('circle',{cx:0,cy:0,r:5,fill:colors[name]},marker);node('text',{x:8,y:-8},marker).textContent=name+(sections.length>1?i+1:'')+(end==='start'?'始点':'終点');}
+    }catch(e){errors.push(e.message);}}}finally{showSection(name,saved);}}
    renderCornerSelections();updateMarkerScale();
-   $('warning').textContent=(selected.length?`線${selected.join('・')}を選択しました。次に線${pending.join('・')}をタップしてください。`:'A/Bの辺を選んでください。固定した配置は残っています。')+errors.join(' ');return;
+   $('warning').textContent=(selected.length?`線${selected.join('・')}を選択しました。同じ側は＋選択で追加できます。線${pending.join('・')}は対象を切り替えて選んでください。`:'A/Bの辺を選んでください。固定した配置は残っています。')+errors.join(' ');return;
   }
   renderFixed();
   const width=number('width',1,10000);for(let i=1;i<state.sources.length;i++)number('width'+(i+1),1,10000);rebuildScene();renderFixed();
@@ -601,8 +602,7 @@ function hit(x,y){
  if(best.d>limit){message('線の近くをタップしてください。番号リストからも選択できます。');return;}
  if(corner){const name=$('active').value;$(mode+name).value=best.index;calculate();message($('warning').textContent||`線${name}の${mode==='cornerstart'?'始点':'終点'}の隣辺を選びました。図の太い線で確認できます。別の辺をタップすると変更できます。`);}
  else if(lineNames.includes(mode)){$('path'+mode).value=best.index;
-  const next=['registered','sequence','pair'].includes($('seamMode').value)?['A','B'].find(n=>n!==mode&&$('path'+n).value===''):null;
-  $('active').value=next||mode;$('mode').value=next||mode;$('path'+mode).onchange();$('mode').onchange();
+  $('active').value=mode;$('path'+mode).onchange();$('mode').onchange();
   message($('warning').textContent||`線${mode}にカット線${best.index+1}を選びました。`);}
  else{const name=$('active').value;$(mode+name).value=best.percent.toFixed(1);syncRanges(name);calculate();message(`線${name}の${mode==='start'?'始点':'終点'}を変更しました。`);}
 }
@@ -725,7 +725,7 @@ $('layersToggle').onclick=()=>{if(!$('layersDrawer').hidden){closeLayers();retur
 // Close on touch/pointer release, before Safari synthesizes a focus-changing click.
 // Keyboard activation continues to use the click handler above.
 $('layersClose').addEventListener('pointerup',e=>{if(e.pointerType==='mouse'&&e.button!==0)return;e.preventDefault();closeLayers();});
-$('addSelectionPreview').onclick=()=>{const name=$('active').value==='B'?'B':'A',add=$('addSection'+name);if(add.disabled){message('先にA/Bの辺を選んでください。');return;}add.onclick();$('mode').value=name;$('active').value=name;$('mode').onchange();closeLayers();message(`${name}${state.sectionSelected[name]+1}へ追加する辺をタップしてください。同じ辺なら始点・終点を変更できます。`);};
+$('addSelectionPreview').onclick=()=>{const name=$('active').value==='B'?'B':'A',add=$('addSection'+name);if(add.disabled){message(`先に線${name}の辺を選んでください。`);return;}add.onclick();$('mode').value=name;$('active').value=name;$('mode').onchange();closeLayers();message(`${name}${state.sectionSelected[name]+1}へ追加する辺をタップしてください。同じ辺なら始点・終点を変更できます。`);};
 $('fixSetPreview').onclick=()=>{if(!$('fixSet').disabled)$('fixSet').onclick();};new MutationObserver(()=>$('fixSetPreview').disabled=$('fixSet').disabled).observe($('fixSet'),{attributes:true,attributeFilter:['disabled']});
 function clearDraftSelection(){for(const name of lineNames){$('path'+name).value='';state.chains[name]=null;for(const end of ['start','end'])$('corner'+end+name).value='';}state.sections=null;state.sectionSelected={A:0,B:0};state.sectionModeActive=false;state.committedSignature=null;for(const o of $('active').options)o.textContent=o.value;$('mode').value='A';$('active').value='A';}
 $('clearSelection').onclick=()=>{closeLayers();clearDraftSelection();calculate();message('編集中の選択をクリアしました。固定した配置は残しています。↶で戻せます。');};
