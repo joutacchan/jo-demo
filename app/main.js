@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate,along,trimCADBacktracks} from './geometry.js?v=manual-multi-select-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate,along,trimCADBacktracks} from './geometry.js?v=stable-side-switch-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -46,10 +46,10 @@ function captureSection(name){const values=Object.fromEntries(sectionFields.map(
 function sectionPath(section){const si=state.sources.findIndex(s=>s.id===section.sourceId);if(si<0||!state.sources[si].paths[section.local])throw Error('原本が変更された区間があります。その区間を削除して追加し直してください。');return state.pathSources.indexOf(si)+section.local;}
 function showSection(name,section){const path=sectionPath(section);state.chains[name]=structuredClone(section.chain||null);for(const [key,value] of Object.entries(section.values)){const e=$(key+name);if(e.type==='checkbox')e.checked=value;else e.value=key==='path'?path:value;}syncRanges(name);}
 function persistSections(){if($('seamMode').value!=='sequence'||!state.sections||!state.sectionModeActive)return;for(const name of ['A','B']){const old=state.sections[name][state.sectionSelected[name]];if($('path'+name).value!==''&&(!old||state.sources.some(s=>s.id===old.sourceId)))state.sections[name][state.sectionSelected[name]]=captureSection(name);}}
-function renderSections(){const enabled=$('seamMode').value==='sequence',entering=enabled&&!state.sectionModeActive;const existing=!!state.sections;if(enabled&&!state.sections){state.sections=Object.fromEntries(['A','B'].map(n=>[n,$('path'+n).value===''?[]:[captureSection(n)]]));state.sectionSelected={A:0,B:0};}if(entering&&existing)for(const name of ['A','B'])try{const section=state.sections[name][state.sectionSelected[name]];if(section)showSection(name,section);}catch(e){message(e.message);}state.sectionModeActive=enabled;for(const name of ['A','B']){const option=[...$('active').options].find(o=>o.value===name);if(option){option.value=name;option.textContent=enabled?name+(state.sectionSelected[name]+1):name;}}
- for(const name of ['A','B']){const panel=$('sections'+name);panel.hidden=!enabled;if(!enabled)continue;const list=$('sectionList'+name);list.replaceChildren();state.sections[name].forEach((section,i)=>{const row=document.createElement('div');row.className='section-row';const edit=document.createElement('button');let caption='原本変更・再追加が必要';try{caption=pathLabel(sectionPath(section));}catch{}edit.textContent=`${name}${i+1} · ${caption}：${section.values.start}% → ${section.values.end}%${i===state.sectionSelected[name]?'（編集中）':''}`;edit.setAttribute('aria-pressed',String(i===state.sectionSelected[name]));edit.onclick=()=>{persistSections();state.sectionSelected[name]=i;$('active').value=name;if(lineNames.includes($('mode').value))$('mode').value=name;try{showSection(name,section);}catch(e){message(e.message);}calculate();};row.append(edit);
- for(const [text,delta] of [['↑',-1],['↓',1],['削除',0]]){const b=document.createElement('button');b.textContent=text;b.setAttribute('aria-label',`${name}${i+1} ${text}`);b.disabled=delta?i+delta<0||i+delta>=state.sections[name].length:state.sections[name].length===1;b.onclick=()=>{persistSections();const sections=state.sections[name];if(delta)[sections[i],sections[i+delta]]=[sections[i+delta],sections[i]];else sections.splice(i,1);state.sectionSelected[name]=delta?i+delta:Math.min(i,sections.length-1);showSection(name,sections[state.sectionSelected[name]]);calculate();};row.append(b);}list.append(row);});
- document.querySelector(`.line[data-name=${name}] h3`).textContent=`線${name} · ${name}${state.sectionSelected[name]+1}を編集中`;
+function renderSections(){const enabled=$('seamMode').value==='sequence',entering=enabled&&!state.sectionModeActive;const existing=!!state.sections;if(enabled&&!state.sections){state.sections=Object.fromEntries(['A','B'].map(n=>[n,$('path'+n).value===''?[]:[captureSection(n)]]));state.sectionSelected={A:0,B:0};}if(entering&&existing)for(const name of ['A','B'])try{const section=state.sections[name][state.sectionSelected[name]];if(section)showSection(name,section);}catch(e){message(e.message);}state.sectionModeActive=enabled;for(const name of ['A','B']){const option=[...$('active').options].find(o=>o.value===name);if(option){if(!option.hasAttribute('value')||option.value!==name)option.value=name;const caption=enabled?name+(state.sectionSelected[name]+1):name;if(option.textContent!==caption)option.textContent=caption;}}
+ for(const name of ['A','B']){const panel=$('sections'+name);panel.hidden=!enabled;if(!enabled)continue;const list=$('sectionList'+name),key=JSON.stringify([state.sections[name],state.sectionSelected[name],state.sources.map(s=>[s.id,s.name])]);if(list.renderKey!==key){list.replaceChildren();state.sections[name].forEach((section,i)=>{const row=document.createElement('div');row.className='section-row';const edit=document.createElement('button');let caption='原本変更・再追加が必要';try{caption=pathLabel(sectionPath(section));}catch{}edit.textContent=`${name}${i+1} · ${caption}：${section.values.start}% → ${section.values.end}%${i===state.sectionSelected[name]?'（編集中）':''}`;edit.setAttribute('aria-pressed',String(i===state.sectionSelected[name]));edit.onclick=()=>{persistSections();state.sectionSelected[name]=i;$('active').value=name;if(lineNames.includes($('mode').value))$('mode').value=name;try{showSection(name,state.sections[name][i]);}catch(e){message(e.message);}calculate();};row.append(edit);
+ for(const [text,delta] of [['↑',-1],['↓',1],['削除',0]]){const b=document.createElement('button');b.textContent=text;b.setAttribute('aria-label',`${name}${i+1} ${text}`);b.disabled=delta?i+delta<0||i+delta>=state.sections[name].length:state.sections[name].length===1;b.onclick=()=>{persistSections();const sections=state.sections[name];if(delta)[sections[i],sections[i+delta]]=[sections[i+delta],sections[i]];else sections.splice(i,1);state.sectionSelected[name]=delta?i+delta:Math.min(i,sections.length-1);showSection(name,sections[state.sectionSelected[name]]);calculate();};row.append(b);}list.append(row);});list.renderKey=key;}
+ const heading=document.querySelector(`.line[data-name=${name}] h3`),caption=`線${name} · ${name}${state.sectionSelected[name]+1}を編集中`;if(heading.textContent!==caption)heading.textContent=caption;
  }}
 for(const name of ['A','B']){const panel=document.createElement('div');panel.id='sections'+name;panel.hidden=true;const add=document.createElement('button');add.id='addSection'+name;add.textContent='複数選ぶ';add.setAttribute('aria-label',`線${name}を複数選ぶ`);add.onclick=()=>{ensureSequenceMode();persistSections();state.sections[name].push(captureSection(name));state.sectionSelected[name]=state.sections[name].length-1;$('active').value=name;if(lineNames.includes($('mode').value))$('mode').value=name;calculate();message(`${name}${state.sectionSelected[name]+1}を追加しました。同じ辺の離れた区間なら始点・終点を変更してください。`);};const list=document.createElement('div');list.id='sectionList'+name;panel.append(list);const linePanel=document.querySelector(`.line[data-name=${name}]`);linePanel.append(panel,add);const split=document.createElement('button');split.id='splitSection'+name;split.textContent='分割';split.setAttribute('aria-label',`線${name}を分割`);split.onclick=()=>splitSection(name);const options=document.createElement('details');options.innerHTML=`<summary>分割位置・空きを指定</summary><label>区間内の分割位置 %<input data-section-tool id="sectionSplit${name}" type="number" min="0.1" max="99.9" step="0.1" value="50"></label><label>分割箇所の空き mm（元カット線沿い）<input data-section-tool id="sectionGap${name}" type="number" min="0.1" step="0.1" value="10"></label>`;linePanel.append(split,options);}
 function ensureSequenceMode(){if($('seamMode').value!=='sequence'){$('seamMode').value='sequence';calculate();}}
@@ -60,9 +60,8 @@ function splitSection(name){try{ensureSequenceMode();persistSections();const pos
 function sectionCurve(section){const members=section.chain?.members||[{local:section.local,reverse:false}],forward=JSON.stringify(members.map(m=>[m.local,m.reverse])),backward=JSON.stringify([...members].reverse().map(m=>[m.local,!m.reverse]));return {key:section.sourceId+':'+(forward<backward?forward:backward),flip:forward>backward};}
 function sectionSignature(section){return JSON.stringify({source:section.sourceId,curve:section.chain?.members||section.local,values:Object.fromEntries(Object.entries(section.values).filter(([k])=>k!=='path'))});}
 function calculateSections(units,width,diameter,minPitch,count){
- const saved={A:captureSection('A'),B:captureSection('B')},entries=[],groups={A:[],B:[]},errors=[],duplicates=[],seen={A:new Map(),B:new Map()};
- try{const excluded=['A','B'].flatMap(n=>state.sections[n].flatMap(s=>{try{return [sectionPath(s),...chainIndices(s.chain)];}catch{return [];}}));for(const name of ['A','B'])for(const [i,section] of state.sections[name].entries()){try{const signature=sectionSignature(section),label=name+(i+1);if(seen[name].has(signature)){duplicates.push(`${label}は${seen[name].get(signature)}と同じ設定のため1区間として配置します。`);continue;}seen[name].set(signature,label);showSection(name,section);const path=sectionPath(section),line=buildLine(name,units,false,excluded);entries.push({name,label:name+(i+1),path,line,section});groups[name].push(line);}catch(e){errors.push(`${name}${i+1}：${e.message}`);}}}
- finally{for(const name of ['A','B'])showSection(name,saved[name]);}
+ const entries=[],groups={A:[],B:[]},errors=[],duplicates=[],seen={A:new Map(),B:new Map()};
+ const excluded=['A','B'].flatMap(n=>state.sections[n].flatMap(s=>{try{return [sectionPath(s),...chainIndices(s.chain)];}catch{return [];}}));for(const name of ['A','B'])for(const [i,section] of state.sections[name].entries()){try{const signature=sectionSignature(section),label=name+(i+1);if(seen[name].has(signature)){duplicates.push(`${label}は${seen[name].get(signature)}と同じ設定のため1区間として配置します。`);continue;}seen[name].set(signature,label);const path=sectionPath(section),line=buildLine(name,units,false,excluded,section);entries.push({name,label:name+(i+1),path,line,section});groups[name].push(line);}catch(e){errors.push(`${name}${i+1}：${e.message}`);}}
  for(const {name,label,path,line} of entries){node('path',{d:line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '),stroke:colors[name],'data-line':name,'data-path':path,'data-section':label},$('guides'));for(const [p,end] of [[line.points[0],'始点'],[line.points.at(-1),'終点']]){const m=node('g',{'data-path':path,'data-x':p.x,'data-y':p.y,'data-section':label},$('markers'));node('text',{x:8,y:end==='始点'?-10:22,style:'font-size:14px;stroke-width:3px'},m).textContent=label+end;}}
  if(errors.length)throw Error(errors.join(' '));
  for(const name of ['A','B']){const sections=state.sections[name];for(let i=0;i<sections.length;i++)for(let j=i+1;j<sections.length;j++){const a=sections[i],b=sections[j];if(sectionSignature(a)===sectionSignature(b))continue;const av=a.values,bv=b.values,ac=sectionCurve(a),bc=sectionCurve(b),physical=(v,section,c)=>resolveSide(v.side,sectionPath(section),+v.start>+v.end)*(+v.start>+v.end?-1:1)*(c.flip?-1:1),offset=v=>v.snap?3:+v.offset,range=(v,c)=>[+v.start,+v.end].map(x=>c.flip?100-x:x).sort((a,b)=>a-b),ar=range(av,ac),br=range(bv,bc);if(ac.key===bc.key&&offset(av)===offset(bv)&&(offset(av)===0||physical(av,a,ac)===physical(bv,b,bc))&&Math.max(ar[0],br[0])<=Math.min(ar[1],br[1])+1e-7)throw Error(`${name}${i+1}と${name}${j+1}が重なるか同じ端点を使っています。区間の間を空けてください。`);}}
@@ -161,7 +160,7 @@ function curveChain(index){const si=state.pathSources[index],source=state.source
  if(candidates.length!==1)break;const m=candidates[0];used.add(m.index);if(prepend)members.unshift(m);else members.push(m);}
  return members.length>1?{sourceId:source.id,members:members.map(m=>({local:m.index-first,reverse:m.reverse}))}:null;
 }
-function editorPath(name,index){const chain=state.chains[name];if(!chain)return state.paths[index];const indices=chainIndices(chain);if(!indices.includes(index))return state.paths[index];const segments=chain.members.flatMap((m,i)=>m.reverse?[...state.paths[indices[i]].segments].reverse().map(c=>[...c].reverse()):state.paths[indices[i]].segments);return {start:segments[0][0],segments,closed:distance(segments[0][0],segments.at(-1).at(-1))<1e-9};}
+function editorPath(name,index,chain=state.chains[name]){if(!chain)return state.paths[index];const indices=chainIndices(chain);if(!indices.includes(index))return state.paths[index];const segments=chain.members.flatMap((m,i)=>m.reverse?[...state.paths[indices[i]].segments].reverse().map(c=>[...c].reverse()):state.paths[indices[i]].segments);return {start:segments[0][0],segments,closed:distance(segments[0][0],segments.at(-1).at(-1))<1e-9};}
 function curveMembers(name){return chainIndices(state.chains[name]);}
 // Find the actual neighboring face for the outer row of a shared cut edge.
 function oppositeRegionWalls(index,line,endpoint,units,prepared){
@@ -173,16 +172,18 @@ function oppositeRegionWalls(index,line,endpoint,units,prepared){
  const sourceWall=[{prepared}];
  return part.indices.flatMap(local=>{const i=first+local,p=state.paths[i],wall=prepare(p,units);if(distanceToWalls(p.start,sourceWall)<.02*units&&distanceToWalls(p.segments.at(-1).at(-1),sourceWall)<.02*units&&distanceToWalls(cutPoint(wall,.5),sourceWall)<.02*units)return [];return [{index:i,prepared:wall}];});
 }
-function buildLine(name,units,draw=true,excluded=[]){
-   const idx=+$('path'+name).value,path=editorPath(name,idx),members=curveMembers(name);
-   const offset=$('snap'+name).checked?3:number('offset'+name,0,100);
-   const start=number('start'+name,0,100)/100,end=number('end'+name,0,100)/100,side=resolveSide($('side'+name).value,idx,start>end);
-   const tracked=['registered','twoSided','sequence','pair'].includes($('seamMode').value),key=idx+':'+units+':'+JSON.stringify(state.chains[name])+':'+tracked;
+function buildLine(name,units,draw=true,excluded=[],section=captureSection(name)){
+   // Read the section directly: calculations must never cycle the visible form.
+   const value=key=>section.values[key],num=(key,min,max)=>{const v=value(key),n=v===''?NaN:Number(v);if(!Number.isFinite(n)||n<min||n>max)throw Error(`${$(key+name).parentElement.textContent.trim()}：${min}〜${max}の数値を入力してください。`);return n;};
+   const idx=sectionPath(section),path=editorPath(name,idx,section.chain),members=chainIndices(section.chain);
+   const offset=value('snap')?3:num('offset',0,100);
+   const start=num('start',0,100)/100,end=num('end',0,100)/100,side=resolveSide(value('side'),idx,start>end);
+   const tracked=['registered','twoSided','sequence','pair'].includes($('seamMode').value),key=idx+':'+units+':'+JSON.stringify(section.chain)+':'+tracked;
    if(!state.cache.has(key)){if(state.cache.size>30)state.cache.clear();state.cache.set(key,prepare(path,units,{reference:tracked}));}
    let line=offsetLine(state.cache.get(key),start,end,offset*units,side);
    const guide=draw?node('path',{d:line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '),stroke:colors[name],'data-line':name},$('guides')):null;
    try{
-   const startAuto=$('cornerstart'+name).value==='auto',endAuto=$('cornerend'+name).value==='auto';
+   const startAuto=value('cornerstart')==='auto',endAuto=value('cornerend')==='auto';
    if(startAuto||endAuto){
     if(state.inside[idx]&&side!==state.inside[idx]*(start>end?-1:1))throw Error('壁の自動調整は内側への配置で使ってください。');
     const walls=state.paths.flatMap((p,i)=>{
@@ -194,19 +195,19 @@ function buildLine(name,units,draw=true,excluded=[]){
    }
    const corners={};
    for(const endpoint of ['start','end']){
-    const chosen=$('corner'+endpoint+name).value;if(chosen===''||chosen==='auto')continue;
+    const chosen=value('corner'+endpoint);if(chosen===''||chosen==='auto')continue;
     const neighbor=+chosen;if(neighbor===idx||members.includes(neighbor))throw Error('角を揃える隣の辺は、自分以外の線を選んでください。');
     if(state.pathSources[neighbor]!==state.pathSources[idx])throw Error('隣の辺は同じ型紙から選んでください。');
     const neighborKey=neighbor+':'+units;
     if(!state.cache.has(neighborKey))state.cache.set(neighborKey,prepare(state.paths[neighbor],units));
-    corners[endpoint]=offsetLine(state.cache.get(neighborKey),0,1,offset*units,resolveSide($('cornerSide'+endpoint+name).value,neighbor));
+    corners[endpoint]=offsetLine(state.cache.get(neighborKey),0,1,offset*units,resolveSide(value('cornerSide'+endpoint),neighbor));
    }
    if(corners.start||corners.end)line=alignCorners(line,corners);
    const allWalls=state.paths.flatMap((p,i)=>{if(i===idx||members.includes(i)||!sameRegion(i,idx))return [];const k=i+':'+units;if(!state.cache.has(k))state.cache.set(k,prepare(p,units));return [{index:i,prepared:state.cache.get(k)}];});
    const insets={};
    for(const endpoint of ['start','end']){
-    if($('corner'+endpoint+name).value!=='')continue;
-    const mode=$('insetMode'+endpoint+name).value,amount=mode==='manual'?number('inset'+endpoint+name,0,100):offset;
+    if(value('corner'+endpoint)!=='')continue;
+    const mode=value('insetMode'+endpoint),amount=mode==='manual'?num('inset'+endpoint,0,100):offset;
     if(mode==='off'||amount===0)continue;
     const regionWalls=$('seamMode').value==='twoSided'&&name==='B'?oppositeRegionWalls(idx,line,endpoint,units,state.cache.get(key)):null;
     const walls=touchingWalls(state.cache.get(key),endpoint==='start'?start:end,regionWalls||allWalls);
@@ -216,7 +217,7 @@ function buildLine(name,units,draw=true,excluded=[]){
      line.autoWalls={...before.autoWalls,...line.autoWalls};state.autoWalls[endpoint+name]=line.autoWalls[endpoint];insets[endpoint]=amount;
     }else if(mode==='manual'||(mode==='offset'&&state.cache.get(key).total*Math.abs(end-start)/units<(number('pitch',10,1000)+2*amount))){line=trimLine(line,endpoint==='start'?amount*units:0,endpoint==='end'?amount*units:0);insets[endpoint]=amount;}
    }
-   line.curveKey=sectionCurve(captureSection(name)).key;line.insets=insets;line.cutRange=[start,end];line.cutLength=state.cache.get(key).total*Math.abs(end-start)/units;line.cutEndpoints=[cutPoint(state.cache.get(key),start),cutPoint(state.cache.get(key),end)];
+   line.curveKey=sectionCurve(section).key;line.insets=insets;line.cutRange=[start,end];line.cutLength=state.cache.get(key).total*Math.abs(end-start)/units;line.cutEndpoints=[cutPoint(state.cache.get(key),start),cutPoint(state.cache.get(key),end)];
 
    guide?.setAttribute('d',line.points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join(' '));
    }catch(e){guide?.setAttribute('data-corner-error','true');throw Error(`線${name}：${e.message}`);}
@@ -235,7 +236,7 @@ function recalculate(){
  for(const name of lineNames){
   if(name!=='C'){const empty=$('path'+name).value==='';$('addSection'+name).disabled=empty;$('splitSection'+name).disabled=empty;}
   document.querySelector(`.line[data-name=${name}]`).hidden=!activeNames().includes(name)||(twoSided&&name==='B');
-  document.querySelector(`.line[data-name=${name}] h3`).textContent=$('seamMode').value==='joined'?({A:'A · つなぐ長い辺',B:'B · 前半につなぐ辺',C:'C · 後半につなぐ辺'}[name]):'線'+name;
+  if($('seamMode').value!=='sequence'){const h=document.querySelector(`.line[data-name=${name}] h3`),caption=$('seamMode').value==='joined'?({A:'A · つなぐ長い辺',B:'B · 前半につなぐ辺',C:'C · 後半につなぐ辺'}[name]):'線'+name;if(h.textContent!==caption)h.textContent=caption;}
   for(const end of ['start','end'])$('inset'+end+name).disabled=$('insetMode'+end+name).value!=='manual';
   const fixed=$('snap'+name).checked;$('offset'+name).disabled=fixed;if(fixed)$('offset'+name).value=3;
   $('offsetHint'+name).textContent=fixed?'カット線から穴の中心まで3mmに固定。オフにすると距離を変更できます。':'固定を解除中。「オフセット mm」を変更してください。オフにするだけでは距離は変わりません。';
@@ -248,10 +249,10 @@ function recalculate(){
   if(activeNames().some(n=>$('path'+n).value==='')){
    const selected=activeNames().filter(n=>$('path'+n).value!==''),pending=activeNames().filter(n=>$('path'+n).value===''),errors=[];
    const units=state.sources[0].box[2]/number('width',1,10000);
-   for(const name of selected){const saved=captureSection(name),sections=$('seamMode').value==='sequence'?state.sections[name]:[saved];
-    try{for(const [i,section] of sections.entries()){try{showSection(name,section);const path=sectionPath(section),line=buildLine(name,units),guide=$('guides').lastElementChild;guide?.setAttribute('data-selection-preview',name);guide?.setAttribute('data-path',path);
+   for(const name of selected){const sections=$('seamMode').value==='sequence'?state.sections[name]:[captureSection(name)];
+    for(const [i,section] of sections.entries()){try{const path=sectionPath(section),line=buildLine(name,units,true,[],section),guide=$('guides').lastElementChild;guide?.setAttribute('data-selection-preview',name);guide?.setAttribute('data-path',path);
      for(const [p,end] of [[line.points[0],'start'],[line.points.at(-1),'end']]){const marker=node('g',{'data-endpoint':end+name,'data-path':path,'data-x':p.x,'data-y':p.y},$('markers'));node('circle',{cx:0,cy:0,r:5,fill:colors[name]},marker);node('text',{x:8,y:-8},marker).textContent=name+(sections.length>1?i+1:'')+(end==='start'?'始点':'終点');}
-    }catch(e){errors.push(e.message);}}}finally{showSection(name,saved);}}
+    }catch(e){errors.push(e.message);}}}
    renderCornerSelections();updateMarkerScale();
    $('warning').textContent=(selected.length?`線${selected.join('・')}を選択しました。同じ側は＋選択で追加できます。線${pending.join('・')}は対象を切り替えて選んでください。`:'A/Bの辺を選んでください。固定した配置は残っています。')+errors.join(' ');return;
   }
