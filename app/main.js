@@ -1,4 +1,4 @@
-import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate,along,trimCADBacktracks} from './geometry.js?v=fresh-placement-1';
+import {parsePath,prepare,offsetLine,place,distance,alignCorners,interiorSides,fitWalls,touchingWalls,distanceToWalls,trimLine,placeJoined,placeRegisteredSequences,placeRegistered,cutPoint,reverseLine,tangent,evaluate,along,trimCADBacktracks} from './geometry.js?v=resume-holes-1';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 const colors={A:'#2864b2',B:'#bb4935',C:'#8564a7'},lineNames=['A','B','C'];
 const activeNames=()=>$('seamMode').value==='joined'?lineNames:$('seamMode').value==='single'?['A']:['A','B'];
@@ -106,7 +106,7 @@ function checkpoint(){
  }
  previous=current;updateHistoryButtons();
 }
-function calculate(){cancelAnimationFrame(frame);frame=0;persistSections();checkpoint();recalculate();syncPartLayout();if(!restoring&&state.doc)previous=snapshot();}
+function calculate(){cancelAnimationFrame(frame);frame=0;persistSections();checkpoint();recalculate();if(state.latest&&hasSavedHoles())try{state.sources.forEach((_,i)=>sourceHoleRecords(i));}catch(e){state.latest=null;$('fixSet').disabled=true;$('warning').textContent=e.message;for(const id of ['holes','guides','markers'])$(id).replaceChildren();}syncPartLayout();if(!restoring&&state.doc)previous=snapshot();}
 // One continuous field edit (typing or dragging a slider) is one undo step.
 document.addEventListener('focusin',e=>{if(!e.target.closest('aside,#lineFields'))return;
  editGroup=e.target.matches('input[type=number],input[type=range]')?e.target.id:null;groupRecorded=false;
@@ -241,7 +241,7 @@ function recalculate(){
  $('singleModeButton').setAttribute('aria-pressed',singleMode);$('pairModeButton').setAttribute('aria-pressed',!singleMode);
  $('mode').querySelector('option[value=B]').disabled=singleMode||twoSided;[...$('active').options].find(o=>o.value==='B').disabled=singleMode||twoSided;if((singleMode||twoSided)&&$('active').value==='B')$('active').value='A';if((singleMode||twoSided)&&$('mode').value==='B')$('mode').value='A';
  if($('active').value==='C')$('active').value='A';if($('mode').value==='C')$('mode').value='pan';
- state.autoWalls={};state.calculations++;state.latest=null;$('fixSet').disabled=true;$('save').disabled=!state.fixed.length;$('share').disabled=!state.fixed.length||!navigator.canShare;renderFixed();$('warning').textContent='';$('stats').replaceChildren();$('saveAll').disabled=!state.fixed.length;
+ state.autoWalls={};state.calculations++;state.latest=null;$('fixSet').disabled=true;$('save').disabled=!(state.fixed.length||hasSavedHoles());$('share').disabled=!(state.fixed.length||hasSavedHoles())||!navigator.canShare;renderFixed();$('warning').textContent='';$('stats').replaceChildren();$('saveAll').disabled=!(state.fixed.length||hasSavedHoles());
  for(const id of ['guides','holes','markers'])$(id).replaceChildren();
  for(const name of lineNames){
   if(name!=='C'){const empty=$('path'+name).value==='';$('addSection'+name).disabled=empty;$('splitSection'+name).disabled=empty;}
@@ -323,6 +323,14 @@ function splitSharpPath(path){
  if(!runs.length)return [path];
  runs.push({start:segments[0][0],segments,closed:false});return runs;
 }
+function isSavedHole(el){return el.localName==='circle'&&el.hasAttribute('data-hole')&&/^stitch_holes(?:_\d+)?$/.test(el.parentElement?.id||'');}
+function holeLinks(el){
+ const raw=el.getAttribute('data-stitch-links');if(!raw)return [];
+ let links;try{links=JSON.parse(raw);}catch{throw Error('針穴の対応情報を読み込めません。');}
+ if(!Array.isArray(links)||links.length>128||links.some(l=>!l||typeof l.placement!=='string'||l.placement.length>100||!/^([ABC]\d*)$/.test(l.row)||!Number.isInteger(l.index)||l.index<0||!Number.isInteger(l.part)||l.part<0||typeof l.endpoint!=='boolean'||(l.q!==null&&(!Number.isFinite(l.q)||Math.abs(l.q)>1e6))))throw Error('針穴の対応情報が不正です。');
+ return links;
+}
+function hasSavedHoles(){return state.sources.some(s=>s.importedHoles?.length);}
 function validateDocument(doc){
  if(doc.querySelector('parsererror')||doc.documentElement.localName!=='svg')throw Error('正しいSVGファイルを指定してください。');
  const root=doc.documentElement;
@@ -336,6 +344,7 @@ function validateDocument(doc){
  }
  const box=(root.getAttribute('viewBox')||'').trim().split(/[\s,]+/).map(Number);
  if(box.length!==4||box.some(v=>!Number.isFinite(v))||box[2]<=0||box[3]<=0)throw Error('有効なviewBoxが必要です。');
+ const importedHoles=[];
  const paths=[...root.querySelectorAll('path,circle')].flatMap(el=>{
   let matrix=new DOMMatrix();const chain=[];for(let e=el;e;e=e.parentElement){chain.unshift(e);if(e===root)break;}
   for(const e of chain)if(e.hasAttribute('transform')){
@@ -348,13 +357,19 @@ function validateDocument(doc){
    const value=(name,fallback)=>{const raw=el.getAttribute(name)??fallback;if(!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(raw.trim()))throw Error('円の座標と半径は数値で指定してください。');return +raw;};
    const x=value('cx','0'),y=value('cy','0'),r=value('r','0'),k=.5522847498307936;
    if(r<=0)throw Error('円の半径は0より大きくしてください。');
+   if(isSavedHole(el)){
+    if(![x,y,r].every(Number.isFinite))throw Error('針穴の座標と半径が不正です。');
+    const scale=Math.hypot(matrix.a,matrix.b),other=Math.hypot(matrix.c,matrix.d);
+    if(Math.abs(scale-other)>1e-9||Math.abs(matrix.a*matrix.c+matrix.b*matrix.d)>1e-9)throw Error('針穴を変形したSVGには対応していません。');
+    importedHoles.push({x:matrix.a*x+matrix.c*y+matrix.e,y:matrix.b*x+matrix.d*y+matrix.f,r:r*scale,links:holeLinks(el)});return [];
+   }
    parsed=parsePath(`M${x+r} ${y} C${x+r} ${y+k*r} ${x+k*r} ${y+r} ${x} ${y+r} C${x-k*r} ${y+r} ${x-r} ${y+k*r} ${x-r} ${y} C${x-r} ${y-k*r} ${x-k*r} ${y-r} ${x} ${y-r} C${x+k*r} ${y-r} ${x+r} ${y-k*r} ${x+r} ${y} Z`);
   }else parsed=parsePath(el.getAttribute('d')||'');
   const map=p=>({x:matrix.a*p.x+matrix.c*p.y+matrix.e,y:matrix.b*p.x+matrix.d*p.y+matrix.f});
   return parsed.map(p=>({...p,start:map(p.start),segments:p.segments.map(c=>c.map(map))}));
  }).map(p=>trimCADBacktracks(p,box[2]/210)).flatMap(splitSharpPath);
  if(paths.length<1||paths.length>1000)throw Error('1〜1000本のサブパスを含むSVGを指定してください。');
- return {box,paths};
+ return {box,paths,importedHoles};
 }
 function widthControl(i){return $(i?'width'+(i+1):'width');}
 function ensureSourceControls(){
@@ -428,7 +443,7 @@ function lineShift(name){return pathShift(+$('path'+name).value);}
 function syncPartLayout(){
  let layer=$('partDrawing');if(!layer){layer=node('g',{id:'partDrawing','pointer-events':'none'},$('camera'));$('camera').insertBefore(layer,$('neighbors'));}layer.replaceChildren();
  const moved=Object.values(state.partOffsets).some(o=>o.x||o.y);$('drawing').style.display=moved?'none':'';
- if(moved)state.sources.forEach(source=>source.parts.forEach((part,pi)=>{const shift=partShift(source,pi),g=node('g',{transform:`translate(${source.tx+shift.x} ${source.ty+shift.y}) scale(${source.scale})`},layer);for(const i of part.indices)node('path',{d:pathD(source.paths[i]),fill:'none',stroke:'black','stroke-width':1,'vector-effect':'non-scaling-stroke'},g);}));
+ if(moved)state.sources.forEach(source=>source.parts.forEach((part,pi)=>{const shift=partShift(source,pi),g=node('g',{transform:`translate(${source.tx+shift.x} ${source.ty+shift.y}) scale(${source.scale})`},layer);for(const i of part.indices)node('path',{d:pathD(source.paths[i]),fill:'none',stroke:'black','stroke-width':1,'vector-effect':'non-scaling-stroke'},g);for(const h of source.importedHoles.filter(h=>h.parts.includes(pi)))node('circle',{cx:h.x,cy:h.y,r:h.r,fill:'none',stroke:'black','stroke-width':.08*source.box[2]/source.width,'data-imported-hole':'true'},g);}));
  const translate=(el,shift)=>el.setAttribute('transform',`translate(${shift.x} ${shift.y})`);
  for(const el of $('guides').children)translate(el,el.hasAttribute('data-path')?pathShift(+el.dataset.path):lineShift(el.dataset.line||'A'));
  for(const el of $('holes').children)translate(el,el.hasAttribute('data-path')?pathShift(+el.dataset.path):lineShift(el.dataset.hole?.[0]||'A'));
@@ -462,11 +477,12 @@ async function readSVGFile(file){
  return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(Error('ファイルを読み取れません。端末の「ファイル」に保存して選び直してください。'));reader.readAsText(file);});
 }
 async function importBatch(files){
- if(!files.length)return;const replaceSample=state.sources.length===1&&state.sources[0].name==='原本サンプル'&&!state.fixed.length;
+ if(!files.length)return;const replaceSample=state.sources.length===1&&state.sources[0].name==='原本サンプル'&&!(state.fixed.length||hasSavedHoles());
  if((replaceSample?0:state.sources.length)+files.length>32)throw Error('SVGは32ファイルまで追加できます。');
  const loaded=[];for(const file of files){if(file.size>2e6)throw Error(`${file.name}：1枚2MB以内にしてください。`);const s=readSource(await readSVGFile(file),file.name);s.width=suggestedWidth(s)||210;if(s.width<1||s.width>10000||!Number.isFinite(s.width))s.width=210;loaded.push(s);}
  const old=[...state.sources],owners=[...state.pathSources],values=savedLineValues();if(replaceSample){state.sources=[];state.completed=[];}const start=state.sources.length;state.sources.push(...loaded);ensureSourceControls();state.sources.forEach((s,i)=>{if(i>=start)widthControl(i).value=s.width;});
  rebuildScene(true);populateChoices();if(replaceSample){resetLine('A',0);resetLine('B',Math.min(1,state.paths.length-1));resetLine('C',Math.min(2,state.paths.length-1));}else remapSelections(values,owners,old);
+ if(loaded.some(s=>s.importedHoles.length))clearDraftSelection();
  $('sourceFiles').open=false;focusPart(state.sources[start],state.sources[start].parts[0]);calculate();message(`${files.length}個のSVGを追加しました。パーツ一覧の図を押して拡大・編集できます。`);
 }
 $('batchFiles').onchange=async e=>{const files=[...e.target.files];if(!files.length)return;++sourceRequest;importStatus(`${files.length}個のSVGを読込中…`);try{await importBatch(files);importStatus(`${files.map(f=>f.name).join('、')}：読込完了。パーツ一覧から選べます。`);}catch(err){importStatus(`読込できませんでした：${err.message}`,true);}finally{e.target.value='';}};
@@ -486,7 +502,16 @@ function readSource(text,name){
   }
   try{const sides=interiorSides(indices.map(i=>paths[i]),box[2]/210,.01);indices.forEach((i,k)=>inside[i]=sides[k]);}catch(e){insideError=e.message;}
  }
- return {doc,text,name,box,paths,inside,insideError,parts,selectionJunctions:regions?.selectionJunctions||[],regionSplit:!!regions,id:++sourceSequence};
+ const polygons=parsed.importedHoles.some(h=>!h.links.length)?parts.map(part=>part.indices.flatMap(i=>paths[i].segments.flatMap(c=>Array.from({length:c.length===2?1:24},(_,k)=>[evaluate(c,k/(c.length===2?1:24)),evaluate(c,(k+1)/(c.length===2?1:24))])))):[];
+ for(const hole of parsed.importedHoles){
+  const saved=[...new Set(hole.links.map(l=>l.part))];if(saved.some(i=>i>=parts.length))throw Error('針穴のパーツ情報と原線が一致しません。');
+  if(saved.length){hole.parts=saved;continue;}
+  const containing=polygons.map((edges,i)=>{let inside=false;for(const [a,b] of edges)if((a.y>hole.y)!==(b.y>hole.y)&&hole.x<(b.x-a.x)*(hole.y-a.y)/(b.y-a.y)+a.x)inside=!inside;return inside?i:-1;}).filter(i=>i>=0);
+  const candidates=containing.length?containing:parts.map((_,i)=>i);
+  const dist=i=>polygons[i].reduce((best,[a,b])=>{const dx=b.x-a.x,dy=b.y-a.y,t=Math.max(0,Math.min(1,((hole.x-a.x)*dx+(hole.y-a.y)*dy)/(dx*dx+dy*dy||1)));return Math.min(best,Math.hypot(hole.x-a.x-t*dx,hole.y-a.y-t*dy));},Infinity);
+  hole.parts=[candidates.reduce((a,b)=>dist(a)<=dist(b)?a:b)];
+ }
+ return {doc,text,name,box,paths,importedHoles:parsed.importedHoles,inside,insideError,parts,selectionJunctions:regions?.selectionJunctions||[],regionSplit:!!regions,id:++sourceSequence};
 }
 function rebuildScene(force=false){
  if(!state.sources.length)return;
@@ -497,6 +522,7 @@ function rebuildScene(force=false){
  state.paths=[];state.pathSources=[];state.inside=[];state.cache.clear();drawing.replaceChildren();drawing.removeAttribute('style');
  let right=first.box[0],height=0;
  state.sources.forEach((source,i)=>{
+  if(source.importedHoles.length&&source.width&&Math.abs(source.width-widths[i])>1e-9)throw Error('配置済み針穴のある型紙の寸法は変更できません。');
   source.width=widths[i];source.scale=units*widths[i]/source.box[2];
   source.tx=right-source.box[0]*source.scale;source.ty=first.box[1]-source.box[1]*source.scale;
   const map=p=>({x:p.x*source.scale+source.tx,y:p.y*source.scale+source.ty});
@@ -558,7 +584,8 @@ export function loadSVG(text,name='SVG',slot=0){
  if(slot===0&&!oldSources[1]){resetLine('A',Math.max(0,Math.min(5,source.paths.length-2)));resetLine('B',Math.min(6,source.paths.length-1));}
  if(slot>0&&slot<3)resetLine(lineNames[slot],state.pathSources.indexOf(slot));
  if(slot===0&&oldSources.length===1&&activeNames().length===3&&source.paths.length>=3)resetLine('C',2);
- calculate();message('辺A・Bを選択。前半・後半につなぐ場合は「1つの辺 ↔ 2つの辺」に切り替え、Cも選んでください。');
+ if(source.importedHoles.length)clearDraftSelection();
+ calculate();message(source.importedHoles.length?'配置済みの針穴を読み込みました。続きの辺を選んでください。':'辺A・Bを選択。前半・後半につなぐ場合は「1つの辺 ↔ 2つの辺」に切り替え、Cも選んでください。');
 }
 export const loadSecondSVG=(text,name='SVG 2')=>loadSVG(text,name,1);
 export const loadThirdSVG=(text,name='SVG 3')=>loadSVG(text,name,2);
@@ -639,24 +666,56 @@ $('stage').onpointermove=e=>{
 };
 function endPointer(e,cancel=false){const p=pointers.get(e.pointerId);if(!p)return;if(!cancel&&!multi&&!p.moved)try{hit(e.clientX,e.clientY);}catch(err){message(err.message);}pointers.delete(e.pointerId);gesture=null;if(pointers.size>=2){const g=pinch();gesture={...g,view:[...state.view],rotation:state.rotation,anchor:local(g.x,g.y)};}for(const remaining of pointers.values()){remaining.sx=remaining.x;remaining.sy=remaining.y;if(multi)remaining.moved=true;}if(!pointers.size){multi=false;checkpoint();}}
 $('stage').onpointerup=e=>endPointer(e);$('stage').onpointercancel=e=>endPointer(e,true);$('stage').onlostpointercapture=e=>endPointer(e,true);
+const placementIds=new Map();
+function placementId(){
+ const latest=state.latest;
+ const key=JSON.stringify(latest.result.rows.map((row,j)=>{const source=state.sources[latest.rowSources[j]];return [source.id,latest.rowNames?.[j]||lineNames[j],latest.diameter,row.holes.map(p=>[(p.x-source.tx)/source.scale,(p.y-source.ty)/source.scale,p.seamReference??null])];}));
+ if(!placementIds.has(key)){placementIds.set(key,crypto.randomUUID());if(placementIds.size>256)placementIds.delete(placementIds.keys().next().value);}
+ return placementIds.get(key);
+}
+function sourceHoleRecords(sourceIndex){
+ const source=state.sources[sourceIndex],units=source.box[2]/source.width;
+ const records=source.importedHoles.map((p,i)=>({...p,links:[...p.links],parts:[...p.parts],importIndex:i}));
+ const cell=Math.max(.001*units,1e-6),grid=new Map(),key=(x,y)=>x+':'+y;
+ const insert=h=>{const k=key(Math.floor(h.x/cell),Math.floor(h.y/cell));if(!grid.has(k))grid.set(k,[]);grid.get(k).push(h);};records.forEach(insert);
+ function add(p,r,label,link){
+  // Only physically coincident endpoints share within the established 0.001 mm tolerance.
+  const candidates=[],x=Math.floor(p.x/cell),y=Math.floor(p.y/cell);for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)candidates.push(...(grid.get(key(x+dx,y+dy))||[]));
+  const tolerance=link.endpoint ? .001*units : 1e-6;
+  if(candidates.some(h=>h.importIndex!==undefined&&distance(h,p)<=tolerance&&Math.abs(h.r-r)>=1e-6*units))throw Error('既存の針穴と重なる位置で穴径が異なります。穴径を揃えてください。');
+  const old=candidates.find(h=>Math.abs(h.r-r)<1e-6*units&&distance(h,p)<=tolerance);
+  if(old){if(!old.links.some(l=>l.placement===link.placement&&l.row===link.row&&l.index===link.index))old.links.push(link);if(!old.parts.includes(link.part))old.parts.push(link.part);return;}
+  const record={...p,r,label,links:[link],parts:[link.part]};records.push(record);insert(record);
+ }
+ state.fixed.forEach((set,k)=>set.rows.filter(row=>row.sourceId===source.id).forEach(row=>row.holes.forEach((p,i)=>add(p,row.radius,`S${k+1}_${row.name}_${i+1}`,{placement:set.id,row:row.name,index:i,part:row.partIndex,endpoint:i===0||i===row.holes.length-1,q:p.seamReference??null,exception:!!p.endpointException}))));
+ if(state.latest&&draftSignature()!==state.committedSignature){const latest=state.latest,id=placementId();latest.result.rows.forEach((row,j)=>{
+  if(latest.rowSources[j]!==sourceIndex)return;
+  const local=(latest.rowPaths?.[j]??+$('path'+lineNames[j]).value)-state.pathSources.indexOf(sourceIndex),part=source.parts.findIndex(p=>p.indices.includes(local)),name=latest.rowNames?.[j]||lineNames[j];
+  row.holes.forEach((p,i)=>add({x:(p.x-source.tx)/source.scale,y:(p.y-source.ty)/source.scale},latest.diameter*units/2,`${name}_${String(i+1).padStart(2,'0')}`,{placement:id,row:name,index:i,part,endpoint:i===0||i===row.holes.length-1,q:p.seamReference??null,exception:!!p.endpointException}));
+ });}
+ return records;
+}
 export function exportSVG(sourceIndex=0){
- if(!state.latest&&!state.fixed.length)throw Error('条件を満たす配置を作成してください。');
+ if(!state.latest&&!state.fixed.length&&!hasSavedHoles())throw Error('条件を満たす配置を作成してください。');
  const source=state.sources[sourceIndex];if(!source)throw Error('保存する型紙を選んでください。');
  const units=source.box[2]/source.width,width=source.width,doc=source.doc.cloneNode(true),root=doc.documentElement;
  root.setAttribute('width',width+'mm');root.setAttribute('height',(source.box[3]/units)+'mm');
- const g=doc.createElementNS(NS,'g');let id='stitch_holes',suffix=1;while(root.querySelector(`[id="${id}"]`))id='stitch_holes_'+suffix++;g.setAttribute('id',id);g.setAttribute('fill','none');g.setAttribute('stroke','black');g.setAttribute('stroke-width',.08*units);root.append(g);
- const seen=new Set();
- function appendHole(p,r,label){const key=[p.x.toFixed(6),p.y.toFixed(6),r.toFixed(6)].join(':');if(seen.has(key))return;seen.add(key);const c=doc.createElementNS(NS,'circle');for(const [k,v] of Object.entries({cx:p.x.toFixed(6),cy:p.y.toFixed(6),r:r.toFixed(6),'data-hole':label}))c.setAttribute(k,v);g.append(c);}
- state.fixed.forEach((set,k)=>set.rows.filter(r=>r.sourceId===source.id).forEach(row=>row.holes.forEach((p,i)=>appendHole(p,row.radius,`S${k+1}_${row.name}_${i+1}`))));
- if(state.latest&&draftSignature()!==state.committedSignature)state.latest.result.rows.forEach((row,j)=>{if(state.latest.rowSources[j]!==sourceIndex)return;row.holes.forEach((p,i)=>appendHole({x:(p.x-source.tx)/source.scale,y:(p.y-source.ty)/source.scale},state.latest.diameter*units/2,`${state.latest.rowNames?.[j]||lineNames[j]}_${String(i+1).padStart(2,'0')}`));});
+ const existing=[...root.querySelectorAll('circle')].filter(isSavedHole);let g;
+ for(const hole of sourceHoleRecords(sourceIndex)){
+  let c=existing[hole.importIndex];
+  if(!c){if(!g){g=doc.createElementNS(NS,'g');let id='stitch_holes',suffix=1;while(root.querySelector(`[id="${id}"]`))id='stitch_holes_'+suffix++;g.setAttribute('id',id);g.setAttribute('fill','none');g.setAttribute('stroke','black');g.setAttribute('stroke-width',.08*units);root.append(g);}
+   c=doc.createElementNS(NS,'circle');for(const [k,v] of Object.entries({cx:hole.x.toFixed(6),cy:hole.y.toFixed(6),r:hole.r.toFixed(6),'data-hole':hole.label}))c.setAttribute(k,v);g.append(c);
+  }
+  if(hole.links.length)c.setAttribute('data-stitch-links',JSON.stringify(hole.links));
+ }
  return '<?xml version="1.0" encoding="UTF-8"?>\n'+new XMLSerializer().serializeToString(root);
 }
 function draftSignature(){return JSON.stringify({sources:state.sources.map(s=>s.id),chains:$('seamMode').value==='sequence'?null:state.chains,sections:$('seamMode').value==='sequence'?state.sections:null,values:fields().map(e=>[e.id,e.type==='checkbox'?e.checked:e.value])});}
 function renderFixed(){
  renderLibrary();
  let layer=$('fixedHoles');if(!layer){layer=node('g',{id:'fixedHoles','pointer-events':'none'},$('camera'));$('camera').insertBefore(layer,$('holes'));}layer.replaceChildren();
- $('fixedList').replaceChildren();$('fixedSummary').textContent=state.fixed.length?`${state.fixed.length}件の配置を固定済み。次の辺を選んで続けられます。`:'配置を固定すると、次の編集をしても針穴が残ります。';
- state.sources.forEach((s,i)=>{const locked=state.fixed.some(g=>g.rows.some(r=>r.sourceId===s.id));$(i?'width'+(i+1):'width').disabled=locked;if($(i?'file'+(i+1):'file'))$(i?'file'+(i+1):'file').disabled=locked;if(i===0)$('sample').disabled=locked;});
+ $('fixedList').replaceChildren();for(const source of state.sources)if(source.importedHoles.length){const p=document.createElement('p');p.textContent=`${source.name}：読込済み ${source.importedHoles.length}穴（位置を保持）`;p.dataset.importedHoles=source.id;$('fixedList').append(p);}$('fixedSummary').textContent=state.fixed.length?`${state.fixed.length}件の配置を固定済み。次の辺を選んで続けられます。`:'配置を固定すると、次の編集をしても針穴が残ります。';
+ state.sources.forEach((s,i)=>{const locked=state.fixed.some(g=>g.rows.some(r=>r.sourceId===s.id));$(i?'width'+(i+1):'width').disabled=locked||s.importedHoles.length>0;if($(i?'file'+(i+1):'file'))$(i?'file'+(i+1):'file').disabled=locked;if(i===0)$('sample').disabled=locked;});
  state.fixed.forEach((set,index)=>{
   for(const row of set.rows){const source=state.sources.find(s=>s.id===row.sourceId);if(!source)continue;for(const points of row.guides||[])node('path',{d:points.map((p,i)=>`${i?'L':'M'}${p.x*source.scale+source.tx},${p.y*source.scale+source.ty}`).join(' '),fill:'none',stroke:['#3b7759','#8564a7','#b77735','#397b91'][index%4],'stroke-width':2,'stroke-dasharray':'6 4','vector-effect':'non-scaling-stroke','data-fixed-set':index+1,'data-part':row.sourceId+':'+row.partIndex,'data-fixed-edge':row.name},layer);row.holes.forEach(p=>node('circle',{cx:p.x*source.scale+source.tx,cy:p.y*source.scale+source.ty,r:row.radius*source.scale,'data-part':row.sourceId+':'+row.partIndex,fill:'#375c48','fill-opacity':.7,stroke:'white','stroke-width':.7,'vector-effect':'non-scaling-stroke'},layer));if(row.numbers)for(const [p,end,number] of [[row.holes[0],'始点',row.numbers[0]],[row.holes.at(-1),'終点',row.numbers[1]]]){const g=node('g',{'data-fixed-label':row.name,'data-part':row.sourceId+':'+row.partIndex,'data-x':p.x*source.scale+source.tx,'data-y':p.y*source.scale+source.ty},layer);node('text',{x:8,y:end==='始点'?-10:22,style:'font-size:14px;fill:#375c48;stroke:white;stroke-width:3px;paint-order:stroke'},g).textContent=`${row.name}${end} #${number}`;}}
   const line=document.createElement('div');line.className='result';const label=document.createElement('span');label.textContent=`配置${index+1} · ${set.label} · ${set.rows.map(r=>r.holes.length).join(' / ')}穴 `;const remove=document.createElement('button');remove.textContent='固定を外す';remove.onclick=()=>{const matches=set.signature===draftSignature()||(!set.signature&&draftSignature()===state.committedSignature);state.fixed.splice(index,1);if(matches)clearDraftSelection();calculate();message('固定した配置を外しました。');};line.append(label,remove);$('fixedList').append(line);
@@ -664,22 +723,20 @@ function renderFixed(){
 }
 $('fixSet').onclick=()=>{
  calculate();if(!state.latest||draftSignature()===state.committedSignature)return;
- const latest=state.latest;const rows=latest.result.rows.map((row,j)=>{const source=state.sources[latest.rowSources[j]];const local=(latest.rowPaths?.[j]??+$('path'+lineNames[j]).value)-state.pathSources.indexOf(latest.rowSources[j]);const guides=(j===0&&latest.result.parts?latest.result.parts:[latest.lines[j]]).map(l=>l.points.map(p=>({x:(p.x-source.tx)/source.scale,y:(p.y-source.ty)/source.scale})));return {sourceId:source.id,partIndex:source.parts.findIndex(p=>p.indices.includes(local)),guides,numbers:latest.rowNumbers?.[j],name:latest.rowNames?.[j]||lineNames[j],radius:latest.diameter*source.box[2]/source.width/2,holes:row.holes.map(p=>({x:(p.x-source.tx)/source.scale,y:(p.y-source.ty)/source.scale}))};});
- state.fixed.push({rows,signature:draftSignature(),label:$('seamMode').selectedOptions[0].textContent});state.committedSignature=draftSignature();state.startNextOnSelect=true;calculate();message('この配置を固定しました。次の辺の選択から新しい配置を始めます。');
+ const latest=state.latest;const rows=latest.result.rows.map((row,j)=>{const source=state.sources[latest.rowSources[j]];const local=(latest.rowPaths?.[j]??+$('path'+lineNames[j]).value)-state.pathSources.indexOf(latest.rowSources[j]);const guides=(j===0&&latest.result.parts?latest.result.parts:[latest.lines[j]]).map(l=>l.points.map(p=>({x:(p.x-source.tx)/source.scale,y:(p.y-source.ty)/source.scale})));return {sourceId:source.id,partIndex:source.parts.findIndex(p=>p.indices.includes(local)),guides,numbers:latest.rowNumbers?.[j],name:latest.rowNames?.[j]||lineNames[j],radius:latest.diameter*source.box[2]/source.width/2,holes:row.holes.map(p=>({seamReference:p.seamReference,endpointException:!!p.endpointException,x:(p.x-source.tx)/source.scale,y:(p.y-source.ty)/source.scale}))};});
+ state.fixed.push({rows,id:placementId(),signature:draftSignature(),label:$('seamMode').selectedOptions[0].textContent});state.committedSignature=draftSignature();state.startNextOnSelect=true;calculate();message('この配置を固定しました。次の辺の選択から新しい配置を始めます。');
 };
 $('singleModeButton').onclick=()=>{$('seamMode').value='single';calculate();message('1辺だけに配置します。パーツや辺Aを選んでください。');};
 $('pairModeButton').onclick=()=>{$('seamMode').value='registered';calculate();message('共通基準Cの対応位置を推定して、辺A・Bへ配置します。');};
 function printParts(){
  const items=[];
- state.sources.forEach((source,si)=>source.parts.forEach((part,pi)=>{
-  const holes=[];
-  state.fixed.forEach(set=>set.rows.filter(r=>r.sourceId===source.id&&r.partIndex===pi).forEach(row=>row.holes.forEach(p=>holes.push({...p,r:row.radius}))));
-  if(state.latest&&draftSignature()!==state.committedSignature)state.latest.result.rows.forEach((row,j)=>{const index=(state.latest.rowPaths?.[j]??+$('path'+lineNames[j]).value)-state.pathSources.indexOf(si);if(state.latest.rowSources[j]!==si||!part.indices.includes(index))return;row.holes.forEach(p=>holes.push({x:(p.x-source.tx)/source.scale,y:(p.y-source.ty)/source.scale,r:state.latest.diameter*source.box[2]/source.width/2}));});
+ state.sources.forEach((source,si)=>{const records=sourceHoleRecords(si);source.parts.forEach((part,pi)=>{
+  const holes=records.filter(h=>h.parts.includes(pi));
   const mm=source.width/source.box[2],pad=1/mm;
   const minX=Math.min(part.box[0],...holes.map(p=>p.x-p.r))-pad,minY=Math.min(part.box[1],...holes.map(p=>p.y-p.r))-pad;
   const maxX=Math.max(part.box[0]+part.box[2],...holes.map(p=>p.x+p.r))+pad,maxY=Math.max(part.box[1]+part.box[3],...holes.map(p=>p.y+p.r))+pad;
   items.push({source,part,holes,mm,box:[minX,minY,maxX-minX,maxY-minY],w:(maxX-minX)*mm,h:(maxY-minY)*mm,label:`型紙${si+1} パーツ${pi+1} · ${source.name}`});
- }));return items;
+ });});return items;
 }
 function buildPrintDocument(){
  const items=printParts(),pages=[];let page=null,x=0,y=0,rowHeight=0;
